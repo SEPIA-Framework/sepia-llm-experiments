@@ -25,10 +25,68 @@ var API_URL = getUrlParameter("llmServer") || getUrlParameter("llm_server") || (
 if (!API_URL.endsWith("/")) API_URL += "/";
 console.log("LLM server URL:", API_URL);
 
+var isInitialized = false;
+var initBuffer = [];
+
+//initialize UI
+function onPageReady(){
+	getServerProps().then((serverInfo) => {
+		console.log("Server info:", serverInfo);
+		//make use of server info
+		if (serverInfo?.default_generation_settings?.model){
+			var model = serverInfo.default_generation_settings.model;
+			var baseModel = model.match(/(tiny|gemma|mistral|llama)/gi);	//TODO: add more/fix when templates grow
+			if (baseModel){
+				console.log("Server model family: " + baseModel[0]);
+				var possibleTemplateMatch = chatTemplates.find(t => t.name.toLowerCase().indexOf(baseModel[0].toLowerCase()) >= 0);
+				if (possibleTemplateMatch){
+					chatTemplateEle.value = possibleTemplateMatch.name;
+				}
+			}
+		}
+		if (serverInfo?.system_prompt){
+			if (serverInfo.system_prompt.indexOf("your name is SEPIA") >= 0){
+				expectSepiaJsonEle.checked = true;
+			}else{
+				expectSepiaJsonEle.checked = false;
+			}
+		}
+		console.log("Expect SEPIA JSON:", expectSepiaJsonEle.checked);
+		if (!serverInfo?.total_slots || serverInfo.total_slots === 1){
+			//disable slot ID if none or only 1 is available
+			chatSlotIdEle.value = 0;
+			chatSlotIdEle.max = 0;
+			chatSlotIdEle.disabled = true;
+		}else{
+			chatSlotIdEle.max = (serverInfo.total_slots - 1);
+		}
+		console.log("LLM server slots:", +chatSlotIdEle.max + 1);
+		//continue
+		isInitialized = true;
+		while (initBuffer.length){
+			var next = initBuffer.shift();
+			if (typeof next == "function") next();
+		}
+	}).catch((err) => {
+		isInitialized = true;
+		console.error("Unable to contact the LLM server.", err);
+		showPopUp("ERROR: Unable to contact the LLM server. Please double-check if your server is running and reachable, then reload this page.");
+	});
+}
+
 //create/close chat
 function startChat(){
 	contentPage.classList.remove("empty");
 	contentPage.classList.add("single-instance");
+	
+	if (!isInitialized){
+		var plzWaitMsg = showPopUp("Please wait a second while the UI is trying to contact the (local, private) LLM server.");
+		initBuffer.push(function(){ plzWaitMsg.popUpClose(); });
+		if (!initBuffer.length){
+			initBuffer.push(function(){ startChat(); });
+		}
+		return;
+	}
 	
 	activeModel = chatTemplateEle.value || chatTemplates[0].name;
 	activeTemplate = chatTemplates.find(t => t.name == activeModel);
@@ -291,6 +349,19 @@ async function chatCompletion(slotId, textIn, template){
 	answer = postProcessAnswerAndShow(answer, slotId, chatEle);
 	return answer;
 }
+//get data from '/props' endpoint
+async function getServerProps(){
+	var endpointUrl = API_URL + "props";
+	const response = await fetch(endpointUrl, {
+        method: 'GET'
+    });
+    if (!response.ok){
+		console.error("Failed to get server info:", response);		//DEBUG
+        throw new Error("Failed to get server info.", {cause: response.statusText});
+    }
+    var props = await response.json();
+	return props;
+}
 
 async function processStreamData(response, isStream, expectedSlotId, chatEle){
     const reader = response.body.getReader();
@@ -371,12 +442,19 @@ function postProcessAnswerAndShow(answer, slotId, chatEle){
 		//process all answers if there was more than one and the LLM got confused
 		ans = ans.trim();
 		var ansJson;
+		if (expectSepiaJson){
+			//try to clean up in advance (Gemma-2 2B has some issues here for example)
+			ans = ans.replace(/^(```json)/, "").replace(/^[\n]/, "");
+			ans = ans.replace(/(```)$/, "").replace(/[\n]$/, "");
+		}
 		if (ans.startsWith("{") && ans.endsWith("}")){
 			try {
+				//TODO: this can fail for example if quotes where used inside the JSON message (not escaped \")
 				ansJson = JSON.parse(ans);
 				addToHistory(slotId, "assistant", JSON.stringify(ansJson));
 			}catch(err){
 				console.error("Failed to handle answer while trying to parse:", ans);		//DEBUG
+				ansJson = {"error": "Failed to handle answer while trying to parse JSON"};
 			}
 		}else{
 			ansJson = {command: "chat", message: ans};	//NOTE: this will recover text if SEPIA JSON was expected but LLM decided to ignore it
@@ -411,6 +489,13 @@ const chatTemplates = [{
 	endOfPromptToken: "",
 	stopSignals: ["</s>"]
 },{
+	name: "Gemma-2-it",
+	system: "<start_of_turn>user\n\n{{INSTRUCTION}}\n\n <end_of_turn>",
+	user: "<start_of_turn>user\n\n{{CONTENT}}<end_of_turn>",
+	assistant: "<start_of_turn>model\n\n{{CONTENT}}<end_of_turn>",
+	endOfPromptToken: "<start_of_turn>model",
+	stopSignals: ["<end_of_turn>"]
+},{
 	name: "TinyLlama_1.1B_Chat",
 	system: "<|system|>\n\n{{INSTRUCTION}}<|endoftext|>",
 	user: "<|user|>\n\n{{CONTENT}}<|endoftext|>",
@@ -427,3 +512,6 @@ chatTemplates.forEach(tmpl => {
 	opt.value = tmpl.name;
 	chatTemplateEle.appendChild(opt);
 });
+
+//initialize
+onPageReady();
