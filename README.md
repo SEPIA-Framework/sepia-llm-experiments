@@ -2,6 +2,11 @@
 
 SEPIA LLM experiments is a repository to explore LLM application in the SEPIA assistant framework. The focus is on locally run, fast performing LLMs, no Open-AI or Google servers etc.
 
+## Components
+
+- SEPIA Web UI for LLM experiments
+- llama.cpp server to host models
+
 ## Resources
 
 - [llama.cpp](https://github.com/ggerganov/llama.cpp) - The legendary tool that basically kickstarted on-device LLM experiments by Georgi Gerganov. Includes `llama-server`, an easy way to host open LLMs in your network.
@@ -13,6 +18,8 @@ SEPIA LLM experiments is a repository to explore LLM application in the SEPIA as
   - [Gemma 2 2B it](https://huggingface.co/google/gemma-2-2b-it) - An even smaller 2B model with solid performance for very restricted devices (Raspberry Pi 5 etc.).
 - [Mistral 7B](https://mistral.ai/news/announcing-mistral-7b/) - An open 7B model with small size, very good performance and Apache 2.0 license.
   - [Mistral 7B Instruct v0.3](https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3) - The instruction tuned 7B v0.3 model. Solid, fast and open.
+- [TinyLlama 1.1B](https://github.com/jzhang38/TinyLlama) - A very small, open LLM with 1.1B parameters. Good for experiments on Raspberry Pi etc.
+  - [TinyLlama 1.1 B Chat v1.0](https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0) - A fine tuned version for chats (instruction).
  
 **PLEASE NOTE:** Before you use any of the mentioned models in a **commercial** environment please **check the licenses carefully!** It is a bit hard to find out the details sometimes!
 
