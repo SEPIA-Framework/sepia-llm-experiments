@@ -35,7 +35,7 @@ body.disable-interaction {
 	display: flex;
 	justify-content: center;
 	align-items: center;
-	padding: 4px;
+	padding: 4px 12px;
 	background: #eee;
 	flex: 0 0 auto;
 	min-height: 44px;
@@ -43,7 +43,7 @@ body.disable-interaction {
 html.dark .main-header {
 	background: #000;
 }
-@media (max-width: 639px) {
+@media (max-width: 300px) {
 	.main-header .hide-when-small {
 		display: none !important;
 	}
@@ -186,7 +186,6 @@ input[type=checkbox]:checked {
 }
 .options-menu input[type=checkbox]:checked {
 	background: #ceff1a;
-	outline: 1px solid black;
 	outline-offset: -2px;
 }
 html.dark input,
@@ -208,6 +207,7 @@ input[type=submit],
 	background: #000;
 	color: #ceff1a;
 	border: 1px solid #000;
+	border-radius: 3px;
 	padding: 2px 6px;
 	margin: 0 !important;
 	font-size: 12px;
@@ -219,6 +219,7 @@ input[type=submit],
 	align-items: center;
 	flex: 0 0 auto !important;
 	cursor: pointer;
+	box-shadow: 0px 1px 0px 1px #bbb;
 }
 button:focus-visible, 
 input[type=submit]:focus-visible,
@@ -244,35 +245,32 @@ html.dark input[type=submit],
 html.dark .button-style {
 	background: #000;
 	color: #ceff1a;
-	border-color: #fff;
+	border-color: #555;
+	box-shadow: 0px 1px 0px 1px #111;
 }
 button.black, html.dark button.black,
 .button-style.black, html.dark .button-style.black {
 	background: #000;
 	color: #fff;
 }
-button.gold, html.dark button.gold,
-.button-style.gold, html.dark .button-style.gold  {
-	background: #D2C8AE;
-	color: #000;
-}
-button:hover,
-html.dark button:hover,
-.button-style:hover,
-html.dark .button-style:hover {
-	/*box-shadow: inset 0 0 6px 2px #888, 0 0 4px 1px #cad2ae55;*/
-	color: #eee;
-}
-button.black:hover,
-.button-style.black:hover,
-html.dark button.black:hover,
-html.dark .button-style.black:hover {
-	/*box-shadow: inset 0 0 6px 2px #888, 0 0 4px 1px #cad2ae55;*/
-	color: #6dd372;
-}
-button.gold:hover,
-.button-style.gold:hover {
-	box-shadow: inset 0 0 6px 2px #eee, 0 0 4px 1px #ceff1a55;
+@media (hover: hover) and (pointer: fine){
+	button:active {
+		box-shadow: unset;
+	}
+	button:hover,
+	html.dark button:hover,
+	.button-style:hover,
+	html.dark .button-style:hover {
+		/*box-shadow: inset 0 0 6px 2px #888, 0 0 4px 1px #cad2ae55;*/
+		color: #eee;
+	}
+	button.black:hover,
+	.button-style.black:hover,
+	html.dark button.black:hover,
+	html.dark .button-style.black:hover {
+		/*box-shadow: inset 0 0 6px 2px #888, 0 0 4px 1px #cad2ae55;*/
+		color: #6dd372;
+	}
 }
 .button-bold {
 	font-weight: bold;
@@ -289,19 +287,21 @@ button + .button-style,
     color: #000;
     border-radius: 3px;
 }
-.main-header button:hover,
-.main-header .button-style:hover {
-	color: #6dd372;
-}
 html.dark .main-header button,
 html.dark .main-header .button-style {
 	background: #000;
     color: #ceff1a;
-    border-color: #ccc;
+    border-color: #666;
 }
-html.dark .main-header button:hover,
-html.dark .main-header .button-style:hover {
-    color: #fff;
+@media (hover: hover) and (pointer: fine){
+	.main-header button:hover,
+	.main-header .button-style:hover {
+		color: #6cbb70;
+	}
+	html.dark .main-header button:hover,
+	html.dark .main-header .button-style:hover {
+		color: #fff;
+	}
 }
 .calc-item button,
 .calc-item .button-style	{
@@ -749,11 +749,13 @@ html.dark .pop-up-message-box {
 html.dark .list-container .list-item {
 	box-shadow: 0 0 4px 1px #ceff1a55;
 }
-.list-container .list-item.button-style:hover {
-	box-shadow: inset 0 0 6px 2px #dd0707, 0 2px 4px rgba(0, 0, 0, 0.25);
-}
-html.dark .list-container .list-item.button-style:hover {
-	box-shadow: inset 0 0 6px 2px #dd0707, 0 0 4px 1px #ceff1a55;
+@media (hover: hover) and (pointer: fine){
+	.list-container .list-item.button-style:hover {
+		box-shadow: inset 0 0 6px 2px #dd0707, 0 2px 4px rgba(0, 0, 0, 0.25);
+	}
+	html.dark .list-container .list-item.button-style:hover {
+		box-shadow: inset 0 0 6px 2px #dd0707, 0 0 4px 1px #ceff1a55;
+	}
 }
 .list-container .list-item-desc {
 	flex: 1 1 auto;
@@ -768,9 +770,11 @@ html.dark .list-container .list-item.button-style:hover {
 	border-width: 0;
 	align-self: stretch;
 }
-.list-container .list-item > button:hover {
-	background: #e2d8be;
-	box-shadow: unset;
+@media (hover: hover) and (pointer: fine){
+	.list-container .list-item > button:hover {
+		background: #e2d8be;
+		box-shadow: unset;
+	}
 }
 
 .content-page .chat-window {
@@ -796,6 +800,7 @@ html.dark .list-container .list-item.button-style:hover {
 	scrollbar-width: thin;
 }
 .chat-window .chat-input-controls {
+	position: relative;
 	background: #eee;
 	min-height: 50px;
 	flex: 0 0 auto;
@@ -806,6 +811,7 @@ html.dark .chat-window .chat-input-controls {
 }
 .chat-window .chat-input-form {
 	width: 100%;
+	z-index: 1;
 }
 .chat-window .chat-input-form > div {
 	border: 1px solid #000;
@@ -824,21 +830,47 @@ html.dark .chat-window .chat-input-form > div {
 }
 .chat-window .chat-input-form > div:focus-within {
 }
-.chat-window .chat-input-form .chat-input-textarea {
+.chat-window .chat-input-form .chat-input-text-box {
 	flex: 1 1 auto;
+	position: relative;
+	display: flex;
+	justify-content: start;
+    align-items: start;
+	padding: 0px;
+	margin: 0;
+	min-width: 125px;
+	max-height: 150px;
+	height: auto;
+	overflow-y: auto;
+	overflow-x: hidden;
+    scrollbar-width: thin;
+    overscroll-behavior: contain;
+}
+.chat-window .chat-input-form .chat-input-textarea,
+.chat-window .chat-input-form .chat-input-textarea-size-calc {
 	border: 0;
 	background: transparent;
 	color: inherit;
-	min-width: 125px;
-	height: 22px;
-	max-height: 100px;
+	width: 100%;
+	height: 18px;
+	min-height: 18px;
+	padding: 2px;
 	resize: none;
-    overflow-y: auto;
-    scrollbar-width: thin;
-    overscroll-behavior: contain;
 	font-family: 'Arial';
 	font-size: 16px;
 	line-height: 18px;
+	overflow: hidden;
+	overflow-wrap: break-word;
+	z-index: 1;
+}
+.chat-window .chat-input-form .chat-input-textarea-size-calc {
+	position: absolute;
+	top: 0px;
+	left: 0px;
+	white-space: pre-wrap;
+	height: auto;
+	visibility: hidden;
+	z-index: 0;
 }
 .chat-window .chat-input-form .chat-input-textarea:focus,
 .chat-window .chat-input-form .chat-input-textarea:focus-visible {
@@ -855,8 +887,8 @@ html.dark .chat-window .chat-input-form > div {
 .chat-window .chat-input-form .chat-input-buttons-box button {
 	border-radius: 14px;
 	border: 0;
-    width: 28px;
-    height: 28px;
+    width: 26px;
+    height: 26px;
 	font-family: 'Arial';
     font-size: 15px;
     display: flex;
@@ -966,6 +998,7 @@ html.dark .chat-msg-container.user-prompt .chat-msg .chat-msg-header .chat-msg-h
 	font-size: 15px;
 	line-height: 17px;
 	white-space: pre-wrap;
+	overflow-wrap: break-word;
 }
 .chat-msg .chat-msg-txt:focus,
 .chat-msg .chat-msg-txt:focus-visible {
@@ -979,5 +1012,8 @@ html.dark .chat-msg-container.user-prompt .chat-msg .chat-msg-header .chat-msg-h
 	font-family: 'Arial';
 	font-size: 15px;
 	line-height: 17px;
-	white-space: pre-wrap;
+	white-space: pre;
+	/*overflow-wrap: normal;*/
+	overflow-x: auto;
+	overscroll-behavior: contain;
 }

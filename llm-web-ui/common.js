@@ -3,6 +3,9 @@
 const startUrlParams = new URLSearchParams(window.location.search);
 const urlParamColorScheme = startUrlParams.get('color');
 
+function getUrlParameter(key){
+	return startUrlParams.get(key);
+}
 function updateUrlParameter(key, value, reloadPage){
 	var currentUrl = new URL(window.location.href);
 	var currentUrlParams = new URLSearchParams(currentUrl.search);

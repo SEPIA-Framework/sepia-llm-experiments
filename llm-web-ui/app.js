@@ -1,9 +1,12 @@
+console.log("Welcome to the SEPIA LLM Web UI :-)");
+
 //DOM elements
 const inputFormEles = document.querySelectorAll(".chat-input-form");
 inputFormEles.forEach((ele) => {
 	ele.addEventListener("submit", onInputFormSubmit);
 });
-const textInputEle = document.getElementById('chat-input-text');
+const textInputEle = document.getElementById("chat-input-text");
+const textInputEleSizeDummy = document.getElementById("chat-input-text-size");
 const textInputEleBaseHeight = +window.getComputedStyle(textInputEle).height.replace("px", "");
 const textInputEleBaseLineHeight = +window.getComputedStyle(textInputEle).lineHeight.replace("px", "");
 textInputEle.value = "";
@@ -13,24 +16,40 @@ const chatMessageBaseLineHeight = 17;
 
 var chatSlotIdEle = optionsMenu.querySelector("[name=option-chat-slot-id]");
 var chatHistoryMaxEle = optionsMenu.querySelector("[name=option-chat-history-max]");
+var chatTemplateEle = optionsMenu.querySelector("[name=option-chat-template]");
+var cachePromptsOnServerEle = optionsMenu.querySelector("[name=option-cache-prompts]");
+var expectSepiaJsonEle = optionsMenu.querySelector("[name=option-expect-sepia-json]");
 
-//Server static stuff
-const API_URL = window.location.origin + window.location.pathname;		//NOTE: the page is hosted directly from the server
+//Server static stuff - NOTE: the page can be hosted directly from the llama.cpp server if needed
+var API_URL = getUrlParameter("llmServer") || getUrlParameter("llm_server") || (window.location.origin + window.location.pathname);
+if (!API_URL.endsWith("/")) API_URL += "/";
+console.log("LLM server URL:", API_URL);
 
 //create/close chat
 function startChat(){
 	contentPage.classList.remove("empty");
 	contentPage.classList.add("single-instance");
 	
+	activeModel = chatTemplateEle.value || chatTemplates[0].name;
 	activeTemplate = chatTemplates.find(t => t.name == activeModel);
 	activeSlotId = +chatSlotIdEle.value;
 	maxHistory = +chatHistoryMaxEle.value;
-	console.log("Starting chat.", "Model: " + activeModel, "Slot ID: " + activeSlotId);
-	console.log("Template:", activeTemplate);
+	cachePromptsOnServer = cachePromptsOnServerEle.checked;
+	expectSepiaJson = expectSepiaJsonEle.checked;
+	console.log("Starting chat - Slot ID: " + activeSlotId + ", Max. history: " + maxHistory);
+	console.log("Template:", activeTemplate.name, activeTemplate);
+	
+	createNewChatAnswer("Hello world :-)").attach();
 }
 function closeChat(){
 	contentPage.classList.add("empty");
 	contentPage.classList.remove("single-instance");
+	chatHistory = {};
+	mainChatView.innerHTML = "";
+}
+function createNewChat(){
+	closeChat();
+	startChat();
 }
 
 //send/process input
@@ -38,7 +57,8 @@ function sendInput(){
 	const message = textInputEle.value;
 	console.log("sendInput - prompt:", message);	//DEBUG
 	textInputEle.value = '';
-	textInputEle.style.height = textInputEleBaseHeight + "px";
+	//textInputEle.style.height = textInputEleBaseHeight + "px";
+	formatTextArea(textInputEle, textInputEleBaseHeight, textInputEleBaseLineHeight);
 	createNewChatPrompt(message).attach();
 	addToHistory(activeSlotId, "user", message);
 	chatCompletion(activeSlotId, message, activeTemplate).then(answer => {
@@ -61,17 +81,26 @@ function insertTextAtCursor(ele, insertChars){
 	ele.selectionStart = ele.selectionEnd = start + 1;
 }
 function formatTextArea(textAreaEle, baseEleHeight, baseLineHeight){
-	var lines = textAreaEle.value.match(/\n/gm)?.length || 0;
-	textAreaEle.style.height = (baseEleHeight + lines * baseLineHeight) + "px";
+	if (textInputEleSizeDummy){
+		if (textAreaEle.value.endsWith("\n")){
+			textInputEleSizeDummy.textContent = textAreaEle.value + " ";	//NOTE: hack to force new line
+		}else{
+			textInputEleSizeDummy.textContent = textAreaEle.value;
+		}
+		var currentHeight = textInputEleSizeDummy.getBoundingClientRect().height;
+		textAreaEle.style.height = currentHeight + "px";
+	}else{
+		var lines = textAreaEle.value.match(/\n/gm)?.length || 0;
+		textAreaEle.style.height = (baseEleHeight + lines * baseLineHeight) + "px";
+	}
 }
 textInputEle.addEventListener('keydown', function(event){
 	if (event.key === 'Enter'){
 		event.preventDefault();
 		if (event.shiftKey){
 			//SHIFT + ENTER: add a new line
-			//textInputEle.value += '\n';
 			insertTextAtCursor(this, "\n");
-			textInputEle.style.height = (+textInputEle.style.height.replace("px", "") + textInputEleBaseLineHeight) + "px";
+			formatTextArea(this, textInputEleBaseHeight, textInputEleBaseLineHeight);
 		}else{
 			//ENTER: trigger send function
 			sendInput();
@@ -79,11 +108,12 @@ textInputEle.addEventListener('keydown', function(event){
 	}else if (event.key === 'Tab'){
         event.preventDefault();
 		insertTextAtCursor(this, "\t");
+		formatTextArea(this, textInputEleBaseHeight, textInputEleBaseLineHeight);
     }
 });
 textInputEle.addEventListener('input', function(event){
 	//recalculate number of lines
-	formatTextArea(textInputEle, textInputEleBaseHeight, textInputEleBaseLineHeight);
+	formatTextArea(this, textInputEleBaseHeight, textInputEleBaseLineHeight);
 });
 
 function createNewChatAnswer(message){
@@ -175,12 +205,14 @@ function createGeneralChatBubble(){
 
 //------- API interface ---------
 
-var activeModel = "LLaMA_3.1_8B_Instruct";
+var activeModel = "";
 var activeTemplate = undefined;
 var activeSlotId = -1;
 
 var chatHistory = {};	//NOTE: separate histories for each slotId
 var maxHistory = -1;	//-1 = whatever the model/server can handle
+var cachePromptsOnServer = true;
+var expectSepiaJson = true;
 
 //add to history
 function addToHistory(slotId, role, content){
@@ -235,7 +267,7 @@ async function chatCompletion(slotId, textIn, template){
 			id_slot: slotId,
 			stream: doStream,
             prompt: formatPrompt(slotId, textIn, template),
-			cache_prompt: true
+			cache_prompt: cachePromptsOnServer
 			/*
 			n_predict: 64,
             temperature: 0.2,
@@ -347,8 +379,12 @@ function postProcessAnswerAndShow(answer, slotId, chatEle){
 				console.error("Failed to handle answer while trying to parse:", ans);		//DEBUG
 			}
 		}else{
-			ansJson = {command: "chat", message: ans};
-			addToHistory(slotId, "assistant", JSON.stringify(ansJson));
+			ansJson = {command: "chat", message: ans};	//NOTE: this will recover text if SEPIA JSON was expected but LLM decided to ignore it
+			if (expectSepiaJson){
+				addToHistory(slotId, "assistant", JSON.stringify(ansJson));
+			}else{
+				addToHistory(slotId, "assistant", ans);
+			}
 		}
 		if (ansJson.command == "chat"){
 			chatEle.addText(ansJson.message);
@@ -366,6 +402,28 @@ const chatTemplates = [{
 	user: "<|start_header_id|>user<|end_header_id|>{{CONTENT}}<|eot_id|>",
 	assistant: "<|start_header_id|>assistant<|end_header_id|>{{CONTENT}}<|eot_id|>",
 	endOfPromptToken: "assistant",
-	stopSignals: ["<|eot_id|>", "assistant", "user"]
+	stopSignals: ["<|eot_id|>"]
+},{
+	name: "Mistral-7B-Instruct",
+	system: "<s>[INST] {{INSTRUCTION}} [/INST] </s>",
+	user: "<s>[INST] {{CONTENT}} [/INST]",
+	assistant: "{{CONTENT}}</s>",
+	endOfPromptToken: "",
+	stopSignals: ["</s>"]
+},{
+	name: "TinyLlama_1.1B_Chat",
+	system: "<|system|>\n\n{{INSTRUCTION}}<|endoftext|>",
+	user: "<|user|>\n\n{{CONTENT}}<|endoftext|>",
+	assistant: "<|assistant|>\n\n{{CONTENT}}<|endoftext|>",
+	endOfPromptToken: "<|assistant|>",
+	stopSignals: ["</s>", "<|endoftext|>"]
 }];
 //["</s>", "<|end|>", "<|eot_id|>", "<|end_of_text|>", "<|im_end|>", "<|EOT|>", "<|END_OF_TURN_TOKEN|>", "<|end_of_turn|>", "<|endoftext|>", "assistant", "user"]
+
+//add templates to selector
+chatTemplates.forEach(tmpl => {
+	var opt = document.createElement("option");
+	opt.textContent = tmpl.name;
+	opt.value = tmpl.name;
+	chatTemplateEle.appendChild(opt);
+});

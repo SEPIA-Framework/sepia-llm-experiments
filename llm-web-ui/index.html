@@ -35,7 +35,7 @@
 </head>
 <body>
 	<div class="main-header">
-		<div class="header-section hide-when-small">
+		<div class="header-section hide-when-small" style="justify-content: start;">
 			<button onclick="toggleNavMenu();" title="Toggle D4 tools menu.">
 				<svg viewBox="0 0 512 512" style="width: 12px; fill: currentColor;"><use xlink:href="#svg-apps"></use></svg>
 			</button>
@@ -44,15 +44,14 @@
 			<svg id="app-icon" height="36" fill="none" viewBox="0 0 600 600"><use xlink:href="#svg-sepia"></use></svg>
 			<h3 id="main-headline" class="text-shadow-1" style="display: none;">Tools</h3>
 		</div>
-		<div class="header-section hide-when-small">
+		<div class="header-section hide-when-small" style="justify-content: end;">
 			<!--
 			<button onclick="loadStoredChat();" title="Load stored chat.">
 				<svg viewBox="0 0 16 16" style="width: 14px; fill: currentColor;"><use xlink:href="#svg-folder"></use></svg>
-			</button>
-			<button onclick="addNewChat();" title="Create a new chat.">
+			</button>-->
+			<button onclick="createNewChat();" title="Create a new chat, forget history and reload options.">
 				<svg viewBox="0 0 16 16" style="width: 14px; fill: currentColor;"><use xlink:href="#svg-add-btn"></use></svg>
 			</button>
-			-->
 			<button onclick="toggleOptionsMenu();" title="Toggle display options.">
 				<svg viewBox="0 0 16 16" style="width: 14px; fill: currentColor;"><use xlink:href="#svg-settings-sliders"></use></svg>
 			</button>
@@ -61,6 +60,9 @@
 	<div class="main-view">
 		<div class="nav-menu hidden">
 			<section>
+				<div class="group">
+					<a class="button-style bigger" href="https://github.com/SEPIA-Framework/sepia-llm-experiments" target=blank_>SEPIA LLM</a>
+				</div>
 				<div class="group">
 					<a class="button-style bigger" href="https://sepia-framework.github.io" target=blank_>SEPIA HOME</a>
 				</div>
@@ -74,14 +76,23 @@
 		</div>
 		<div class="options-menu hidden">
 			<section>
-				<div class="group">
+				<div class="group" title="Switch between light and dark mode for the UI.">
 					<label>Color style dark:</label><input name="option-dark-mode" type="checkbox">
 				</div>
-				<div class="group">
+				<div class="group" title="If the server has slots enabled you can (in theory) choose a slot ID.">
 					<label>Chat slot ID:</label><input name="option-chat-slot-id" type="text" value="0">
 				</div>
-				<div class="group">
+				<div class="group" title="Maximum number of messages to remember. -1 means everything the model context length can handle.">
 					<label>Max chat history:</label><input name="option-chat-history-max" type="text" value="-1">
+				</div>
+				<div class="group" title="Prompt caching reduces time to process the chat history, but can have unexpected side effects. Note that this still requires the chat history!">
+					<label>Cache prompts:</label><input name="option-cache-prompts" type="checkbox" checked>
+				</div>
+				<div class="group" title="If your model produces SEPIA specific JSON, use this option.">
+					<label>Expect SEPIA JSON:</label><input name="option-expect-sepia-json" type="checkbox" checked>
+				</div>
+				<div class="group" title="The chat template used to send prompts.">
+					<label>Template:</label><select name="option-chat-template" style="width: 100%;"><option selected disabled value="">- Default -</option></select>
 				</div>
 			</section>
 		</div>
@@ -95,6 +106,9 @@
 				</div>
 				<div class="nc-menu-section">
 					<h3 style="margin: 16px 8px;">SEPIA Pages:</h3>
+				</div>
+				<div class="nc-menu-section">
+					<a class="button-style big" href="https://github.com/SEPIA-Framework/sepia-llm-experiments">SEPIA LLM EXPERIMENTS</a>
 				</div>
 				<div class="nc-menu-section">
 					<a class="button-style big" href="https://sepia-framework.github.io">SEPIA HOME</a>
@@ -119,7 +133,10 @@
 					<form class="chat-input-form">
 						<div>
 							<div class="chat-input-buttons-box"></div>
-							<textarea id="chat-input-text" class="chat-input-textarea" name="inputText" placeholder="Ask ..."></textarea>
+							<div class="chat-input-text-box">
+								<div id="chat-input-text-size" class="chat-input-textarea-size-calc"></div>
+								<textarea id="chat-input-text" class="chat-input-textarea" name="inputText" placeholder="Ask ..."></textarea>
+							</div>
 							<div class="chat-input-buttons-box">
 								<button type="submit">&#x27A4;</button>
 							</div>
