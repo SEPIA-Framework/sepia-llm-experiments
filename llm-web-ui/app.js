@@ -17,6 +17,7 @@ const chatMessageBaseLineHeight = 17;
 var chatSlotIdEle = optionsMenu.querySelector("[name=option-chat-slot-id]");
 var chatHistoryMaxEle = optionsMenu.querySelector("[name=option-chat-history-max]");
 var chatTemplateEle = optionsMenu.querySelector("[name=option-chat-template]");
+var systemPromptEle = optionsMenu.querySelector("[name=option-system-prompt]");
 var cachePromptsOnServerEle = optionsMenu.querySelector("[name=option-cache-prompts]");
 var expectSepiaJsonEle = optionsMenu.querySelector("[name=option-expect-sepia-json]");
 
@@ -44,6 +45,7 @@ function onPageReady(){
 				}
 			}
 		}
+		/* deprecated:
 		if (serverInfo?.system_prompt){
 			if (serverInfo.system_prompt.indexOf("your name is SEPIA") >= 0){
 				expectSepiaJsonEle.checked = true;
@@ -52,6 +54,7 @@ function onPageReady(){
 			}
 		}
 		console.log("Expect SEPIA JSON:", expectSepiaJsonEle.checked);
+		*/
 		if (!serverInfo?.total_slots || serverInfo.total_slots === 1){
 			//disable slot ID if none or only 1 is available
 			chatSlotIdEle.value = 0;
@@ -61,16 +64,29 @@ function onPageReady(){
 			chatSlotIdEle.max = (serverInfo.total_slots - 1);
 		}
 		console.log("LLM server slots:", +chatSlotIdEle.max + 1);
+		//select system prompt
+		var sysPromptName = systemPromptEle.value;		//TODO: keep selected or choose new?
+		return loadSystemPrompt(sysPromptName);
+	})
+	.then((sysPrompt) => {
 		//continue
 		isInitialized = true;
 		while (initBuffer.length){
 			var next = initBuffer.shift();
 			if (typeof next == "function") next();
 		}
-	}).catch((err) => {
+	})
+	.catch((err) => {
+		if (err.name == "FailedToLoadPromptFile"){
+			console.error("Failed to load system prompt file.", err);
+			showPopUp("ERROR: Failed to load system prompt file.");
+		}else if (err.name == "FailedToLoadLlmServerInfo"){
+			console.error("Unable to contact the LLM server.", err);
+			showPopUp("ERROR: Unable to contact the LLM server. Please double-check if your server is running and reachable, then reload this page.");
+		}else{
+			console.error("Error in 'onPageReady' function:", err);
+		}
 		isInitialized = true;
-		console.error("Unable to contact the LLM server.", err);
-		showPopUp("ERROR: Unable to contact the LLM server. Please double-check if your server is running and reachable, then reload this page.");
 	});
 }
 
@@ -265,6 +281,7 @@ function createGeneralChatBubble(){
 
 var activeModel = "";
 var activeTemplate = undefined;
+var activeSystemPrompt = "";
 var activeSlotId = -1;
 
 var chatHistory = {};	//NOTE: separate histories for each slotId
@@ -291,13 +308,17 @@ function getHistory(slotId){
 }
 
 //format prompt before sending
-function formatPrompt(slotId, textIn, template){
-	var formText = buildPromptHistory(slotId, template);
+function formatPrompt(slotId, textIn, template, sysPrompt){
+	var formText = buildSystemPrompt(template, sysPrompt);
+	formText += buildPromptHistory(slotId, template);
 	formText += template.user.replace("{{CONTENT}}", textIn);
 	if (template.endOfPromptToken){
 		formText += template.endOfPromptToken;
 	}
 	return formText;
+}
+function buildSystemPrompt(template, sysPrompt){
+	return (template.system?.replace("{{INSTRUCTION}}", sysPrompt) || "");
 }
 function buildPromptHistory(slotId, template){
 	var hist = getHistory(slotId);
@@ -324,7 +345,7 @@ async function chatCompletion(slotId, textIn, template){
         body: JSON.stringify({
 			id_slot: slotId,
 			stream: doStream,
-            prompt: formatPrompt(slotId, textIn, template),
+            prompt: formatPrompt(slotId, textIn, template, activeSystemPrompt),
 			cache_prompt: cachePromptsOnServer
 			/*
 			n_predict: 64,
@@ -350,17 +371,33 @@ async function chatCompletion(slotId, textIn, template){
 	return answer;
 }
 //get data from '/props' endpoint
-async function getServerProps(){
-	var endpointUrl = API_URL + "props";
-	const response = await fetch(endpointUrl, {
-        method: 'GET'
-    });
-    if (!response.ok){
-		console.error("Failed to get server info:", response);		//DEBUG
-        throw new Error("Failed to get server info.", {cause: response.statusText});
-    }
-    var props = await response.json();
-	return props;
+function getServerProps(){
+	return new Promise((resolve, reject) => {
+		var endpointUrl = API_URL + "props";
+		fetch(endpointUrl, {
+			method: 'GET'
+		}).then((response) => {
+			if (!response.ok){
+				console.error("Failed to get server info:", response);		//DEBUG
+				reject({
+					name: "FailedToLoadLlmServerInfo", 
+					message: ("Failed to get server info. Status: " + response.status + " - " + response.statusText),
+					cause: response
+				});
+			}
+			return response.json();
+		})
+		.then((props) => {
+			resolve(props);
+		})
+		.catch((err) => {
+			throw {
+				name: "Error", 
+				message: ("Failed to get server info."),
+				cause: err
+			}
+		});
+	});
 }
 
 async function processStreamData(response, isStream, expectedSlotId, chatEle){
@@ -389,7 +426,14 @@ async function processStreamData(response, isStream, expectedSlotId, chatEle){
 					if (d && d.trim()){
 						var data = d.substring(6).trim();
 						if (data){
-							const message = JSON.parse(data);
+							var message;
+							try {
+								message = JSON.parse(data);
+							}catch (err){
+								//TODO: handle this in a better way
+								console.error("Failed to parse server JSON response:", d);
+								return;
+							}
 							console.log("message JSON:", message);		//DEBUG
 							if (message.timings){
 								console.log("time to process prompt (ms):", message.timings?.prompt_ms);		//DEBUG
@@ -472,10 +516,13 @@ function postProcessAnswerAndShow(answer, slotId, chatEle){
 	});
 }
 
-//----- chat templates ------
+//----- chat templates and system prompts ------
 
 const chatTemplates = [{
 	name: "LLaMA_3.1_8B_Instruct",
+	llmInfo: {
+		infoPrompt: "Your LLM is called LLaMA 3.1 with 8B parameters and works offline, on device, is open and may be used commercially under certain conditions. LLaMA has been trained by the company Meta, but your training data is somewhat of a mystery."
+	},
 	system: "<|start_header_id|>system<|end_header_id|>{{INSTRUCTION}}<|eot_id|>",
 	user: "<|start_header_id|>user<|end_header_id|>{{CONTENT}}<|eot_id|>",
 	assistant: "<|start_header_id|>assistant<|end_header_id|>{{CONTENT}}<|eot_id|>",
@@ -483,6 +530,9 @@ const chatTemplates = [{
 	stopSignals: ["<|eot_id|>"]
 },{
 	name: "Mistral-7B-Instruct",
+	llmInfo: {
+		infoPrompt: "Your LLM is called Mistral-7B and works offline, on device, is open and may be used commercially under certain conditions. Mistral-7B has been trained by the company Mistral AI, but your training data is somewhat of a mystery."
+	},
 	system: "<s>[INST] {{INSTRUCTION}} [/INST] </s>",
 	user: "<s>[INST] {{CONTENT}} [/INST]",
 	assistant: "{{CONTENT}}</s>",
@@ -490,6 +540,9 @@ const chatTemplates = [{
 	stopSignals: ["</s>"]
 },{
 	name: "Gemma-2-it",
+	llmInfo: {
+		infoPrompt: "Your LLM is called Gemma 2 and works offline, on device, is open and may be used commercially under certain conditions. Gemma 2 has been trained by Google, but your training data is somewhat of a mystery."
+	},
 	system: "<start_of_turn>user\n\n{{INSTRUCTION}}\n\n <end_of_turn>",
 	user: "<start_of_turn>user\n\n{{CONTENT}}<end_of_turn>",
 	assistant: "<start_of_turn>model\n\n{{CONTENT}}<end_of_turn>",
@@ -497,6 +550,9 @@ const chatTemplates = [{
 	stopSignals: ["<end_of_turn>"]
 },{
 	name: "TinyLlama_1.1B_Chat",
+	llmInfo: {
+		infoPrompt: "Your LLM is called TinyLlama, has 1.1B parameters, works offline, on device, is open and may be used commercially under certain conditions. More information about TinyLlama can be found on its GitHub project page."
+	},
 	system: "<|system|>\n\n{{INSTRUCTION}}<|endoftext|>",
 	user: "<|user|>\n\n{{CONTENT}}<|endoftext|>",
 	assistant: "<|assistant|>\n\n{{CONTENT}}<|endoftext|>",
@@ -506,12 +562,96 @@ const chatTemplates = [{
 //["</s>", "<|end|>", "<|eot_id|>", "<|end_of_text|>", "<|im_end|>", "<|EOT|>", "<|END_OF_TURN_TOKEN|>", "<|end_of_turn|>", "<|endoftext|>", "assistant", "user"]
 
 //add templates to selector
-chatTemplates.forEach(tmpl => {
+chatTemplates.forEach((tmpl) => {
 	var opt = document.createElement("option");
 	opt.textContent = tmpl.name;
 	opt.value = tmpl.name;
 	chatTemplateEle.appendChild(opt);
 });
+
+const systemPrompts = [{
+	name: "SEPIA Chat",
+	promptText: "You are a voice assistant, your name is SEPIA. You have been created to answer general knowledge questions and have a nice and friendly conversation. Your answers are short and precise, but can be funny sometimes.",
+	expectSepiaJson: false
+},{
+	name: "SEPIA Smart Home Control",
+	file: "SEPIA_smart_home_control.txt",
+	expectSepiaJson: true,
+	promptVariables: [{key: "infoPrompt", name: "{{LLM_INFO_PROMPT}}"}]
+}];
+
+//add prompts to selector
+systemPrompts.forEach((sp, index) => {
+	var opt = document.createElement("option");
+	opt.textContent = sp.name;
+	opt.value = sp.name;
+	if (index == 0) opt.selected = true;
+	systemPromptEle.appendChild(opt);
+});
+//load prompts via selector
+systemPromptEle.addEventListener("change", function(){
+	loadSystemPrompt(systemPromptEle.value).catch((err) => {
+		console.error("Failed to load system prompt file.", err);
+		showPopUp("ERROR: Failed to load system prompt file.");
+		//TODO: reset field
+	});
+});
+//prompt loader
+function loadSystemPrompt(name){
+	return new Promise((resolve, reject) => {
+		var sysPromptInfo = systemPrompts.find((sp) => sp.name == name);
+		if (sysPromptInfo.file){
+			var loadMsg = showPopUp("Loading system prompt file...");
+			loadFile("system-prompts/" + sysPromptInfo.file, "text").then((sp) => {
+				//apply text from file
+				activeSystemPrompt = applySystemPromptVariables(sp, sysPromptInfo.promptVariables);
+				expectSepiaJsonEle.checked = sysPromptInfo.expectSepiaJson;
+				loadMsg.popUpClose();
+				resolve(activeSystemPrompt);
+			}).catch((err) => {
+				//failed to load file
+				activeSystemPrompt = "";
+				expectSepiaJsonEle.checked = false;
+				console.error("Failed to load system prompt file:", sysPromptInfo.file, err);
+				loadMsg.popUpClose();
+				reject({
+					name: "FailedToLoadPromptFile",
+					message: "Failed to load system prompt file.",
+					cause: err
+				});
+			});
+		}else if (sysPromptInfo.promptText){
+			//apply text directly
+			activeSystemPrompt = applySystemPromptVariables(sysPromptInfo.promptText, sysPromptInfo.promptVariables);
+			expectSepiaJsonEle.checked = sysPromptInfo.expectSepiaJson;
+			resolve(activeSystemPrompt);
+		}else{
+			activeSystemPrompt = "";
+			expectSepiaJsonEle.checked = false;
+			resolve(activeSystemPrompt);
+		}
+	});
+}
+function applySystemPromptVariables(sysPrompt, promptVariables){
+	//apply system prompt variables
+	var selectedTemplate = chatTemplates.find(t => t.name == chatTemplateEle.value);
+	if (promptVariables){
+		if (!selectedTemplate || !selectedTemplate.llmInfo){
+			console.error("Failed to apply system prompt variables due to missing template or template 'llmInfo'.");
+			return sysPrompt;
+		}
+		promptVariables.forEach(function(pv){
+			var llmInfoVal = selectedTemplate.llmInfo[pv.key];
+			if (llmInfoVal == undefined){
+				console.error("Active template is missing LLM info for sys. prompt variable '" + pv.key + "'.");
+			}else{
+				sysPrompt = sysPrompt.replaceAll(pv.name, llmInfoVal);
+			}
+		});
+	}
+	console.log("System prompt:", sysPrompt);		//DEBUG
+	return sysPrompt;
+}
 
 //initialize
 onPageReady();

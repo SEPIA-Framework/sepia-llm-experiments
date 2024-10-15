@@ -26,13 +26,23 @@ function loadScript(url) {
 		document.head.appendChild(script);
 	});
 }
-function loadJSON(url) {
+function loadCSS(url) {
+	const link = document.createElement('link');
+	link.rel = 'stylesheet';
+	link.href = url;
+	document.head.appendChild(link);
+}
+function loadFile(url, type) {
 	return fetch(url).then(response => {
 		if (response.status != 200){
 			var msg = response.statusText || (response.status == 404? "File not found" : "");
 			throw {message: msg, code: response.status, response: response};
 		}else{
-			return response.json();
+			if (type == "json"){
+				return response.json();
+			}else{
+				return response.text();
+			}
 		}
 	});
 }
@@ -40,12 +50,6 @@ async function loadScripts(urls) {
 	for (const url of urls) {
 		await loadScript(url);
 	}
-}
-function loadCSS(url) {
-	const link = document.createElement('link');
-	link.rel = 'stylesheet';
-	link.href = url;
-	document.head.appendChild(link);
 }
 
 //Common UI:
