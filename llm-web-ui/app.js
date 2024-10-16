@@ -426,7 +426,6 @@ function getServerProps(){
 async function processStreamData(response, isStream, expectedSlotId, chatEle, completionAbortCtrl){
     let answer = "";
 	if (isStream){
-		//-------------------
 		//read stream chunk by chunk
 		var bytesTotal = 0;
 		var decoder = new TextDecoder('utf-8');
@@ -451,7 +450,8 @@ async function processStreamData(response, isStream, expectedSlotId, chatEle, co
 			//look for line break or end
 			if (textBuffer){
 				var lines = textBuffer.split(/\n\s*\n/);
-				console.log("lines:", lines);			//DEBUG
+				//console.log("lines:", lines);			//DEBUG
+				console.log("processing lines:", lines.length);			//DEBUG
 				if (lines.length > 1){
 					//take last row as rest buffer
 					textBuffer = lines.pop();
@@ -470,6 +470,7 @@ async function processStreamData(response, isStream, expectedSlotId, chatEle, co
 				}
 				if (isLast && textBuffer){
 					var message = parseDataString(textBuffer);
+					console.log("message JSON:", message);		//DEBUG
 					let res = handleParsedMessage(message, expectedSlotId, answer, chatEle);
 					if (res.answer){
 						answer = res.answer;
@@ -489,56 +490,16 @@ async function processStreamData(response, isStream, expectedSlotId, chatEle, co
 			}
 		}
 		scanDecodedText(true);
-		console.log("processStreamData: done"); //DEBUG
-		//-------------------
-		/*
-		const reader = response.body.getReader();
-		let decoder = new TextDecoder('utf-8');
-		while (true){
-			const {done, value} = await reader.read();
-			if (done){
-				console.log("processStreamData: done", value); //DEBUG
-				break;
-			}
-			const t = decoder.decode(value, {stream: true});
-			if (t.startsWith('data: ')){			
-				//NOTE: sometimes 'data' can exists twice in one chunk !?
-				var dataArr = t.split(/(?:\r\n|\n)/g);
-				var didBreak = false;
-				//console.log("dataArr:", dataArr);			//DEBUG
-				dataArr.forEach(function(d){
-					if (d && d.trim()){
-						var data = d.substring(6).trim();
-						if (data){
-							var message;
-							try {
-								message = JSON.parse(data);
-							}catch (err){
-								//TODO: handle this in a better way
-								console.error("Failed to parse server JSON response:", d);
-								return;
-							}
-							let res = handleParsedMessage(message, expectedSlotId, answer, chatEle);
-							didBreak = res.break;
-							answer = res.answer;
-						}
-					}
-				});
-				if (didBreak){
-					break;
-				}
-			}
-		}
-		*/
+		console.log("processStreamData: done - total bytes:", bytesTotal); //DEBUG
 	}else{
 		const message = await response.json();
+		console.log("message JSON:", message);		//DEBUG
 		let res = handleParsedMessage(message, expectedSlotId, answer, chatEle);
 		answer = res.answer;
 	}
 	return answer;
 }
 function handleParsedMessage(message, expectedSlotId, answer, chatEle){
-	console.log("message JSON:", message);		//DEBUG
 	if (message.timings){
 		console.log("time to process prompt (ms):", message.timings?.prompt_ms);		//DEBUG
 		console.log("time to generate answer (ms):", message.timings?.predicted_ms);	//DEBUG
