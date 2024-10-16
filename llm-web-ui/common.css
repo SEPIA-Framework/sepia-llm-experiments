@@ -839,7 +839,7 @@ html.dark .chat-window .chat-input-form > div {
 	padding: 0px;
 	margin: 0;
 	min-width: 125px;
-	max-height: 150px;
+	max-height: 50vh;
 	height: auto;
 	overflow-y: auto;
 	overflow-x: hidden;
@@ -1016,4 +1016,20 @@ html.dark .chat-msg-container.user-prompt .chat-msg .chat-msg-header .chat-msg-h
 	/*overflow-wrap: normal;*/
 	overflow-x: auto;
 	overscroll-behavior: contain;
+}
+.chat-msg .loading-icon {
+	height: 28px;
+	animation: spin-loader 3s linear infinite;
+	cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine){
+	.chat-msg .loading-icon:hover {
+		color: #6dd372;
+	}
+	html.dark .chat-msg .loading-icon:hover {
+		color: #ceff1a;
+	}
+}
+@keyframes spin-loader { 
+	100% {transform:rotate(360deg);} 
 }

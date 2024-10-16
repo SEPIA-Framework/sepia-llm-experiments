@@ -18,6 +18,7 @@ var chatSlotIdEle = optionsMenu.querySelector("[name=option-chat-slot-id]");
 var chatHistoryMaxEle = optionsMenu.querySelector("[name=option-chat-history-max]");
 var chatTemplateEle = optionsMenu.querySelector("[name=option-chat-template]");
 var systemPromptEle = optionsMenu.querySelector("[name=option-system-prompt]");
+var streamResultEle = optionsMenu.querySelector("[name=option-stream-result]");
 var cachePromptsOnServerEle = optionsMenu.querySelector("[name=option-cache-prompts]");
 var expectSepiaJsonEle = optionsMenu.querySelector("[name=option-expect-sepia-json]");
 
@@ -36,7 +37,7 @@ function onPageReady(){
 		//make use of server info
 		if (serverInfo?.default_generation_settings?.model){
 			var model = serverInfo.default_generation_settings.model;
-			var baseModel = model.match(/(tiny|gemma|mistral|llama)/gi);	//TODO: add more/fix when templates grow
+			var baseModel = model.match(/(tiny|gemma|mistral|phi|llama)/gi);	//TODO: add more/fix when templates grow
 			if (baseModel){
 				console.log("Server model family: " + baseModel[0]);
 				var possibleTemplateMatch = chatTemplates.find(t => t.name.toLowerCase().indexOf(baseModel[0].toLowerCase()) >= 0);
@@ -241,6 +242,16 @@ function createGeneralChatBubble(){
 	tb.appendChild(textEle);
 	return {
 		c, senderIcon, senderName, timeEle,
+		showLoader: function(){
+			var lb = document.createElement("div");
+			lb.style.cssText = "width: 100%; text-align: center;";
+			lb.innerHTML = '<svg class="loading-icon" viewBox="0 0 55.37 55.37"><use xlink:href="#svg-loading-icon"></use></svg>';
+			textEle.appendChild(lb);
+			lb.firstChild.addEventListener("click", function(){
+				console.log("Triggered completion stop signal");
+				abortCompletion();
+			});
+		},
 		setText: function(t){
 			if (activeTextParagraph){
 				activeTextParagraph.textContent = t;
@@ -337,28 +348,33 @@ async function chatCompletion(slotId, textIn, template){
 		return "";
 	}
 	var endpointUrl = API_URL + "completion";
-	var doStream = true;
+	var doStream = streamResultEle.checked;
 	var chatEle = createNewChatAnswer();
 	chatEle.attach();
+	chatEle.showLoader();
+	const completionAbortCtrl = new AbortController();
+	abortCompletion = function(){ completionAbortCtrl.abort(); };	//assigned for button above
     const response = await fetch(endpointUrl, {
         method: 'POST',
         body: JSON.stringify({
 			id_slot: slotId,
 			stream: doStream,
             prompt: formatPrompt(slotId, textIn, template, activeSystemPrompt),
-			cache_prompt: cachePromptsOnServer
+			cache_prompt: cachePromptsOnServer,
+			stop: template.stopSignals,
+			t_max_predict_ms: 30000			//NOTE: we stop predicting after 30s
 			/*
 			n_predict: 64,
             temperature: 0.2,
             top_k: 40,
             top_p: 0.9,
             n_keep: n_keep,
-            cache_prompt: no_cached_prompt === "false",
-            stop: ["\n### Human:"], // stop completion after generating this
             grammar
 			*/
         })
-    });
+    }, {
+		signal: completionAbortCtrl.signal
+	});
     if (!response.ok){
 		console.error("Failed to get result from server:", response);		//DEBUG
 		chatEle.setText("-- ERROR --");
@@ -366,10 +382,13 @@ async function chatCompletion(slotId, textIn, template){
     }
 	//console.log("response", response);		//DEBUG
 
-    var answer = await processStreamData(response, doStream, slotId, chatEle);
+    var answer = await processStreamData(response, doStream, slotId, chatEle, completionAbortCtrl);
 	answer = postProcessAnswerAndShow(answer, slotId, chatEle);
 	return answer;
 }
+//trigger abort controller
+var abortCompletion = function(){};		//NOTE: dynamically assigned
+
 //get data from '/props' endpoint
 function getServerProps(){
 	return new Promise((resolve, reject) => {
@@ -379,11 +398,11 @@ function getServerProps(){
 		}).then((response) => {
 			if (!response.ok){
 				console.error("Failed to get server info:", response);		//DEBUG
-				reject({
+				throw {
 					name: "FailedToLoadLlmServerInfo", 
 					message: ("Failed to get server info. Status: " + response.status + " - " + response.statusText),
 					cause: response
-				});
+				};
 			}
 			return response.json();
 		})
@@ -391,26 +410,91 @@ function getServerProps(){
 			resolve(props);
 		})
 		.catch((err) => {
-			throw {
-				name: "Error", 
-				message: ("Failed to get server info."),
-				cause: err
+			if (err?.name == "FailedToLoadLlmServerInfo"){
+				reject(err);
+			}else{
+				reject({
+					name: "FailedToLoadLlmServerInfo", 
+					message: ("Failed to get server info."),
+					cause: err
+				});
 			}
 		});
 	});
 }
 
-async function processStreamData(response, isStream, expectedSlotId, chatEle){
-    const reader = response.body.getReader();
-    let decoder = new TextDecoder('utf-8');
+async function processStreamData(response, isStream, expectedSlotId, chatEle, completionAbortCtrl){
     let answer = "";
-    let slotId;
 	if (isStream){
-		let chunkLimit = 2000;
-		let chunksProcessed = 0;
-		while (chunksProcessed < chunkLimit){
-			chunksProcessed++;
-			let isLastChunk = chunksProcessed < chunkLimit;
+		//-------------------
+		//read stream chunk by chunk
+		var bytesTotal = 0;
+		var decoder = new TextDecoder('utf-8');
+		var textBuffer = "";
+		var parseDataString = function(l){
+			var d = l && l.trim();
+			if (d.startsWith("data: ")){
+				var data = d.substring(6).trim();
+				if (data){
+					try {
+						var message = JSON.parse(data);
+						return message;
+					}catch (err){
+						console.error("Failed to parse server JSON response:", d);	//DEBUG
+					}
+				}
+			}else{
+				console.error("Unexpected stream data:", d);	//DEBUG
+			}
+		}
+		var scanDecodedText = function(isLast){
+			//look for line break or end
+			if (textBuffer){
+				var lines = textBuffer.split(/\n\s*\n/);
+				console.log("lines:", lines);			//DEBUG
+				if (lines.length > 1){
+					//take last row as rest buffer
+					textBuffer = lines.pop();
+					//parse everything up till rest
+					for (const l of lines){
+						var message = parseDataString(l);
+						let res = handleParsedMessage(message, expectedSlotId, answer, chatEle);
+						if (res.answer){
+							answer = res.answer;
+						}
+						if (res.break){
+							textBuffer = "";	//ignore rest
+							break;
+						}
+					}
+				}
+				if (isLast && textBuffer){
+					var message = parseDataString(textBuffer);
+					let res = handleParsedMessage(message, expectedSlotId, answer, chatEle);
+					if (res.answer){
+						answer = res.answer;
+					}
+				}
+			}
+		};
+		for await (const chunk of response.body){
+			if (completionAbortCtrl?.signal?.aborted){
+				console.error("processStreamData: aborted");		//DEBUG
+				scanDecodedText(true);
+			}else if (chunk?.length){
+				bytesTotal += chunk.length;
+				//decode bytes and add to buffer
+				textBuffer += decoder.decode(chunk, {stream: false});
+				scanDecodedText();
+			}
+		}
+		scanDecodedText(true);
+		console.log("processStreamData: done"); //DEBUG
+		//-------------------
+		/*
+		const reader = response.body.getReader();
+		let decoder = new TextDecoder('utf-8');
+		while (true){
 			const {done, value} = await reader.read();
 			if (done){
 				console.log("processStreamData: done", value); //DEBUG
@@ -434,32 +518,9 @@ async function processStreamData(response, isStream, expectedSlotId, chatEle){
 								console.error("Failed to parse server JSON response:", d);
 								return;
 							}
-							console.log("message JSON:", message);		//DEBUG
-							if (message.timings){
-								console.log("time to process prompt (ms):", message.timings?.prompt_ms);		//DEBUG
-								console.log("time to generate answer (ms):", message.timings?.predicted_ms);	//DEBUG
-							}
-							slotId = message.id_slot;
-							if (slotId != expectedSlotId){
-								if (expectedSlotId == -1){
-									activeSlotId = expectedSlotId;
-								}else{
-									console.error("Wrong slot ID - Expected: " + expectedSlotId, "saw:", slotId);	//DEBUG
-									didBreak = true;
-									return;
-								}
-							}
-							answer += message.content;
-							chatEle.setText(answer);
-							//console.log("processStreamData:", message.content); //DEBUG
-							if (message.stop){
-								if (message.truncated){
-									//chatHistory[slotId].shift();
-									console.error("TODO: message is truncated");	//DEBUG
-								}
-								didBreak = true;
-								return;
-							}
+							let res = handleParsedMessage(message, expectedSlotId, answer, chatEle);
+							didBreak = res.break;
+							answer = res.answer;
 						}
 					}
 				});
@@ -467,15 +528,41 @@ async function processStreamData(response, isStream, expectedSlotId, chatEle){
 					break;
 				}
 			}
-			if (isLastChunk){
-				//TODO: clean up
-			}
 		}
+		*/
 	}else{
-		const result = await reader.read();
-		console.log("processStreamData: result", result); //DEBUG
+		const message = await response.json();
+		let res = handleParsedMessage(message, expectedSlotId, answer, chatEle);
+		answer = res.answer;
 	}
 	return answer;
+}
+function handleParsedMessage(message, expectedSlotId, answer, chatEle){
+	console.log("message JSON:", message);		//DEBUG
+	if (message.timings){
+		console.log("time to process prompt (ms):", message.timings?.prompt_ms);		//DEBUG
+		console.log("time to generate answer (ms):", message.timings?.predicted_ms);	//DEBUG
+	}
+	let slotId = message.id_slot;
+	if (slotId != expectedSlotId){
+		if (expectedSlotId == -1){
+			activeSlotId = expectedSlotId;
+		}else{
+			console.error("Wrong slot ID - Expected: " + expectedSlotId, "saw:", slotId);	//DEBUG
+			return {break: true};
+		}
+	}
+	answer += message.content;
+	chatEle.setText(answer);
+	//console.log("processStreamData:", message.content); //DEBUG
+	if (message.stop){
+		if (message.truncated){
+			//chatHistory[slotId].shift();
+			console.error("TODO: message is truncated");	//DEBUG
+		}
+		return {break: true, answer: answer};
+	}
+	return {break: false, answer: answer};
 }
 function postProcessAnswerAndShow(answer, slotId, chatEle){
 	answer = answer.replace(/^[\r\n]+/, "").replace(/[\r\n]+$/, "");	//remove leading and trailing line breaks
@@ -548,6 +635,16 @@ const chatTemplates = [{
 	assistant: "<start_of_turn>model\n\n{{CONTENT}}<end_of_turn>",
 	endOfPromptToken: "<start_of_turn>model",
 	stopSignals: ["<end_of_turn>"]
+},{
+	name: "Phi-3-instruct",
+	llmInfo: {
+		infoPrompt: "Your LLM is called Phi 3, works offline, on device, is open and may be used commercially under certain conditions. Phi 3 has been trained by Microsoft, but your training data is somewhat of a mystery."
+	},
+	system: "<|system|>\n{{INSTRUCTION}}<|end|>\n",
+	user: "<|user|>\n{{CONTENT}}<|end|>\n",
+	assistant: "<|assistant|>\n{{CONTENT}}<|end|>\n",
+	endOfPromptToken: "<|assistant|>\n",
+	stopSignals: ["</s>", "<|end|>"]
 },{
 	name: "TinyLlama_1.1B_Chat",
 	llmInfo: {
