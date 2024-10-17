@@ -11,6 +11,8 @@ const textInputEleBaseHeight = +window.getComputedStyle(textInputEle).height.rep
 const textInputEleBaseLineHeight = +window.getComputedStyle(textInputEle).lineHeight.replace("px", "");
 textInputEle.value = "";
 textInputEle.style.height = textInputEleBaseHeight + "px";		//set start value as inline style
+const abortProcButton = document.getElementById("chat-input-abort-button");
+
 const mainChatView = document.getElementById("main-chat-view");
 const chatMessageBaseLineHeight = 17;
 
@@ -37,7 +39,7 @@ function onPageReady(){
 		//make use of server info
 		if (serverInfo?.default_generation_settings?.model){
 			var model = serverInfo.default_generation_settings.model;
-			var baseModel = model.match(/(tiny|gemma|mistral|phi|llama)/gi);	//TODO: add more/fix when templates grow
+			var baseModel = model.match(/(tiny)/i) || model.match(/(gemma|mistral|phi|llama)/i);	//TODO: add more/fix when templates grow
 			if (baseModel){
 				console.log("Server model family: " + baseModel[0]);
 				var possibleTemplateMatch = chatTemplates.find(t => t.name.toLowerCase().indexOf(baseModel[0].toLowerCase()) >= 0);
@@ -114,7 +116,8 @@ function startChat(){
 	console.log("Starting chat - Slot ID: " + activeSlotId + ", Max. history: " + maxHistory);
 	console.log("Template:", activeTemplate.name, activeTemplate);
 	
-	createNewChatAnswer("Hello world :-)").attach();
+	var welcomeMessage = activeSystemPromptInfo.welcomeMessage || "Hello world :-)";
+	createNewChatAnswer(welcomeMessage).attach();
 }
 function closeChat(){
 	contentPage.classList.add("empty");
@@ -134,7 +137,8 @@ function sendInput(){
 	textInputEle.value = '';
 	//textInputEle.style.height = textInputEleBaseHeight + "px";
 	formatTextArea(textInputEle, textInputEleBaseHeight, textInputEleBaseLineHeight);
-	createNewChatPrompt(message).attach();
+	var newChatMsg = createNewChatPrompt(message);
+	newChatMsg.attach();
 	addToHistory(activeSlotId, "user", message);
 	chatCompletion(activeSlotId, message, activeTemplate).then(answer => {
 		console.log("sendInput - answer:", answer);	//DEBUG
@@ -191,6 +195,18 @@ textInputEle.addEventListener('input', function(event){
 	formatTextArea(this, textInputEleBaseHeight, textInputEleBaseLineHeight);
 });
 
+function showAbortButton(){
+	abortProcButton.style.removeProperty("display");
+}
+function hideAbortButton(){
+	abortProcButton.style.display = "none";
+}
+abortProcButton.addEventListener("click", function(){
+	hideAbortButton();
+	abortCompletion();
+});
+hideAbortButton();	//hide by default
+
 function createNewChatAnswer(message){
 	var cb = createGeneralChatBubble();
 	cb.c.classList.add("assistant-reply");
@@ -235,22 +251,37 @@ function createGeneralChatBubble(){
 	//var textEle = document.createElement("textarea");
 	var textEle = document.createElement("div");
 	textEle.className = "chat-msg-txt";
+	var loaderC = document.createElement("div");
+	loaderC.className = "chat-msg-loader";
+	loaderC.innerHTML = '<svg class="loading-icon" viewBox="0 0 55.37 55.37"><title>Click me to abort generation.</title><use xlink:href="#svg-loading-icon"></use></svg>';
+	loaderC.firstChild.addEventListener("click", function(){
+		console.log("Triggered completion stop signal");
+		abortCompletion();
+	});
+	var footer = document.createElement("div");
+	footer.className = "chat-msg-footer";
 	var activeTextParagraph = undefined;
 	c.appendChild(cm);
 	cm.appendChild(h);
+	cm.appendChild(loaderC);
 	cm.appendChild(tb);
+	cm.appendChild(footer);
 	tb.appendChild(textEle);
 	return {
 		c, senderIcon, senderName, timeEle,
-		showLoader: function(){
-			var lb = document.createElement("div");
-			lb.style.cssText = "width: 100%; text-align: center;";
-			lb.innerHTML = '<svg class="loading-icon" viewBox="0 0 55.37 55.37"><use xlink:href="#svg-loading-icon"></use></svg>';
-			textEle.appendChild(lb);
-			lb.firstChild.addEventListener("click", function(){
-				console.log("Triggered completion stop signal");
-				abortCompletion();
-			});
+		showLoader: function(skipGlobalAbort){
+			loaderC.classList.add("active");
+			if (!skipGlobalAbort){
+				showAbortButton();
+			}
+			scrollToNewText(true);
+		},
+		hideLoader: function(keepGlobalAbort){
+			loaderC.classList.remove("active");
+			if (!keepGlobalAbort){
+				hideAbortButton();
+			}
+			scrollToNewText(true);
 		},
 		setText: function(t){
 			if (activeTextParagraph){
@@ -260,7 +291,7 @@ function createGeneralChatBubble(){
 			}
 			//textEle.value = t;
 			//formatTextArea(textEle, chatMessageBaseLineHeight, chatMessageBaseLineHeight);
-			mainChatView.scrollTop = mainChatView.scrollHeight;
+			scrollToNewText(true);
 		},
 		addText: function(t){
 			var textBox = document.createElement("div");
@@ -268,24 +299,49 @@ function createGeneralChatBubble(){
 			textBox.textContent = t;
 			textEle.appendChild(textBox);
 			activeTextParagraph = textBox;
-			mainChatView.scrollTop = mainChatView.scrollHeight;
+			scrollToNewText(true);
 		},
 		clearText: function(){
 			textEle.innerHTML = "";
+		},
+		setFooterText: function(t){
+			footer.classList.add("active");
+			footer.textContent = t;
+		},
+		hideFooter: function(){
+			footer.classList.remove("active");
 		},
 		addCommand: function(cmdJson){
 			var cmdBox = document.createElement("div");
 			cmdBox.className = "chat-cmd-code";
 			cmdBox.textContent = JSON.stringify(cmdJson, null, 2);
 			textEle.appendChild(cmdBox);
-			mainChatView.scrollTop = mainChatView.scrollHeight;
+			scrollToNewText(true);
 		},
 		attach: function(){
 			mainChatView.appendChild(c);
-			mainChatView.scrollTop = mainChatView.scrollHeight;
+			scrollToNewText(false);
 		}
 	};
 }
+
+function scrollToNewText(checkPos){
+	setTimeout(function(){
+		/*
+		if (checkPos){
+			if (mainChatView.scrollTop == lastAutoScrollPosEnd){
+				mainChatView.scrollTop = mainChatView.scrollHeight;
+				lastAutoScrollPosEnd = mainChatView.scrollHeight;
+			}
+		}else{
+			mainChatView.scrollTop = mainChatView.scrollHeight;
+			lastAutoScrollPosEnd = mainChatView.scrollHeight;
+		}
+		*/
+		mainChatView.scrollTop = mainChatView.scrollHeight;
+	}, 0);
+}
+var lastAutoScrollPosEnd = undefined;
 
 
 //------- API interface ---------
@@ -293,6 +349,7 @@ function createGeneralChatBubble(){
 var activeModel = "";
 var activeTemplate = undefined;
 var activeSystemPrompt = "";
+var activeSystemPromptInfo = {};
 var activeSlotId = -1;
 
 var chatHistory = {};	//NOTE: separate histories for each slotId
@@ -353,37 +410,68 @@ async function chatCompletion(slotId, textIn, template){
 	chatEle.attach();
 	chatEle.showLoader();
 	const completionAbortCtrl = new AbortController();
-	abortCompletion = function(){ completionAbortCtrl.abort(); };	//assigned for button above
-    const response = await fetch(endpointUrl, {
-        method: 'POST',
-        body: JSON.stringify({
-			id_slot: slotId,
-			stream: doStream,
-            prompt: formatPrompt(slotId, textIn, template, activeSystemPrompt),
-			cache_prompt: cachePromptsOnServer,
-			stop: template.stopSignals,
-			t_max_predict_ms: 30000			//NOTE: we stop predicting after 30s
-			/*
-			n_predict: 64,
-            temperature: 0.2,
-            top_k: 40,
-            top_p: 0.9,
-            n_keep: n_keep,
-            grammar
-			*/
-        })
-    }, {
-		signal: completionAbortCtrl.signal
-	});
+	abortCompletion = function(){
+		//NOTE: function is assigned to button above
+		completionAbortCtrl.abort("canceled");
+		chatEle.setFooterText("Please wait ...");
+	};
+	try {
+		var response = await fetch(endpointUrl, {
+			method: 'POST',
+			body: JSON.stringify({
+				id_slot: slotId,
+				stream: doStream,
+				prompt: formatPrompt(slotId, textIn, template, activeSystemPrompt),
+				cache_prompt: cachePromptsOnServer,
+				stop: template.stopSignals,
+				t_max_predict_ms: 30000			//TODO: we stop predicting after 30s. Track this timer!
+				/*
+				n_predict: 64,
+				temperature: 0.2,
+				top_k: 40,
+				top_p: 0.9,
+				n_keep: n_keep,
+				grammar
+				*/
+			})
+			//signal: completionAbortCtrl.signal	
+			//NOTE: we ignore the signal here for now and apply it to the streaming only, since we cannot trigger the abort on the server itself in non-streaming mode
+		});
+	}catch(err){
+		console.error("Failed to complete fetch request:", err);		//DEBUG
+		chatEle.hideLoader();
+		if (err == "canceled"){
+			chatEle.setText("- CANCELED (NOTE: Server might still process the request!) -");
+			chatEle.setFooterText("CANCELED");
+			return;
+		}else{
+			chatEle.setFooterText("ERROR");
+			throw err;
+		}
+	}
     if (!response.ok){
 		console.error("Failed to get result from server:", response);		//DEBUG
 		chatEle.setText("-- ERROR --");
+		chatEle.hideLoader();
+		chatEle.setFooterText("ERROR");
         throw new Error("Failed to get result from server!", {cause: response.statusText});
     }
 	//console.log("response", response);		//DEBUG
-
-    var answer = await processStreamData(response, doStream, slotId, chatEle, completionAbortCtrl);
-	answer = postProcessAnswerAndShow(answer, slotId, chatEle);
+	try {
+		var answer = await processStreamData(response, doStream, slotId, chatEle, completionAbortCtrl);
+		answer = postProcessAnswerAndShow(answer, slotId, chatEle);
+		chatEle.hideLoader();
+	}catch(err){
+		chatEle.hideLoader();
+		if (err?.name == "AbortError"){
+			console.error("Processing 'completion' endpoint data was aborted:", err);	//DEBUG
+			chatEle.setFooterText("CANCELED");
+			//TODO: clean up
+		}else{
+			console.error("Failed to process 'completion' endpoint data:", err);	//DEBUG
+			chatEle.setFooterText("ERROR");
+		}
+	}
 	return answer;
 }
 //trigger abort controller
@@ -480,8 +568,12 @@ async function processStreamData(response, isStream, expectedSlotId, chatEle, co
 		};
 		for await (const chunk of response.body){
 			if (completionAbortCtrl?.signal?.aborted){
+				//TODO: this will (probably) only be triggered when the signal is removed from the fetch function itself for streams.
+				//		Both methods have its advantages. Which one is better?
 				console.error("processStreamData: aborted");		//DEBUG
+				chatEle.setFooterText("CANCELED");
 				scanDecodedText(true);
+				break;
 			}else if (chunk?.length){
 				bytesTotal += chunk.length;
 				//decode bytes and add to buffer
@@ -493,11 +585,28 @@ async function processStreamData(response, isStream, expectedSlotId, chatEle, co
 		console.log("processStreamData: done - total bytes:", bytesTotal); //DEBUG
 	}else{
 		const message = await response.json();
-		console.log("message JSON:", message);		//DEBUG
-		let res = handleParsedMessage(message, expectedSlotId, answer, chatEle);
-		answer = res.answer;
+		if (completionAbortCtrl?.signal?.aborted){
+			//ignore
+			console.log("message JSON (aborted):", message);		//DEBUG
+			answer = ignoreFinalMessage(message);
+			chatEle.setFooterText("CANCELED");
+		}else{
+			console.log("message JSON:", message);		//DEBUG
+			let res = handleParsedMessage(message, expectedSlotId, answer, chatEle);
+			if (res.reachedLimit){
+				//TODO: handle
+			}
+			answer = res.answer;
+		}
 	}
 	return answer;
+}
+function ignoreFinalMessage(message){
+	if (message.timings){
+		console.log("time to process prompt (ms):", message.timings?.prompt_ms);		//DEBUG
+		console.log("time to generate answer (ms):", message.timings?.predicted_ms);	//DEBUG
+	}
+	return "";
 }
 function handleParsedMessage(message, expectedSlotId, answer, chatEle){
 	if (message.timings){
@@ -515,13 +624,19 @@ function handleParsedMessage(message, expectedSlotId, answer, chatEle){
 	}
 	answer += message.content;
 	chatEle.setText(answer);
+	chatEle.hideLoader(true);
 	//console.log("processStreamData:", message.content); //DEBUG
 	if (message.stop){
 		if (message.truncated){
-			//chatHistory[slotId].shift();
-			console.error("TODO: message is truncated");	//DEBUG
+			console.error("TODO: Message is truncated");	//DEBUG
+			chatEle.setFooterText("TRUNCATED");
 		}
-		return {break: true, answer: answer};
+		if (message.stopped_limit){
+			console.error("TODO: Message stopped due to limit!",
+				(message.timings?.predicted_ms || "???") + "ms", (message.timings?.predicted_n || "???") + " tokens");	//DEBUG
+			chatEle.setFooterText("LIMIT REACHED");
+		}
+		return {break: true, answer: answer, reachedLimit: message.stopped_limit};
 	}
 	return {break: false, answer: answer};
 }
@@ -581,7 +696,7 @@ const chatTemplates = [{
 	llmInfo: {
 		infoPrompt: "Your LLM is called Mistral-7B and works offline, on device, is open and may be used commercially under certain conditions. Mistral-7B has been trained by the company Mistral AI, but your training data is somewhat of a mystery."
 	},
-	system: "<s>[INST] {{INSTRUCTION}} [/INST] </s>",
+	system: "[INST] {{INSTRUCTION}} [/INST] </s>",		//NOTE: we omit the BOS token <s> here since the LLM server adds it
 	user: "<s>[INST] {{CONTENT}} [/INST]",
 	assistant: "{{CONTENT}}</s>",
 	endOfPromptToken: "",
@@ -630,10 +745,12 @@ chatTemplates.forEach((tmpl) => {
 const systemPrompts = [{
 	name: "SEPIA Chat",
 	promptText: "You are a voice assistant, your name is SEPIA. You have been created to answer general knowledge questions and have a nice and friendly conversation. Your answers are short and precise, but can be funny sometimes.",
+	welcomeMessage: "Hello, my name is SEPIA. I'm here to answer your questions and have a friendly conversation :-)",
 	expectSepiaJson: false
 },{
 	name: "SEPIA Smart Home Control",
 	file: "SEPIA_smart_home_control.txt",
+	welcomeMessage: "Hello, my name is SEPIA. I'm here to control your smart home, answer your questions and have a friendly conversation :-)\nWhen I recognize a smart home request, I will show the JSON command in the chat for demonstration purposes, instead of a chat message.",
 	expectSepiaJson: true,
 	promptVariables: [{key: "infoPrompt", name: "{{LLM_INFO_PROMPT}}"}]
 }];
@@ -658,6 +775,7 @@ systemPromptEle.addEventListener("change", function(){
 function loadSystemPrompt(name){
 	return new Promise((resolve, reject) => {
 		var sysPromptInfo = systemPrompts.find((sp) => sp.name == name);
+		activeSystemPromptInfo = sysPromptInfo;
 		if (sysPromptInfo.file){
 			var loadMsg = showPopUp("Loading system prompt file...");
 			loadFile("system-prompts/" + sysPromptInfo.file, "text").then((sp) => {
