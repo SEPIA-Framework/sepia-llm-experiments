@@ -61,6 +61,11 @@ html.dark .main-header {
 	margin: 0;
 	cursor: pointer;
 }
+.main-header button .btn-span {
+	font-family: 'Arial';
+	font-weight: bold;
+	font-size: 14px;
+}
 #d4-icon {
 	color: #000;
 }
@@ -89,8 +94,8 @@ html.dark #app-icon {
 	width: auto;
 }
 .options-menu {
-	left: unset;
-	right: 0;
+	/*left: unset;*/
+	/*right: 0;*/
 }
 .options-menu.hidden,
 .nav-menu.hidden {
@@ -1002,6 +1007,9 @@ html.dark .chat-msg-container.user-prompt .chat-msg .chat-msg-header .chat-msg-h
 	line-height: 17px;
 	white-space: pre-wrap;
 	overflow-wrap: break-word;
+}
+.chat-msg .chat-msg-txt-p:not(:last-child) {
+	margin-bottom: 16px;
 }
 .chat-msg .chat-msg-txt:focus,
 .chat-msg .chat-msg-txt:focus-visible {

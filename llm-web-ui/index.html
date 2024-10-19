@@ -39,6 +39,9 @@
 			<button onclick="toggleNavMenu();" title="Toggle D4 tools menu.">
 				<svg viewBox="0 0 512 512" style="width: 12px; fill: currentColor;"><use xlink:href="#svg-apps"></use></svg>
 			</button>
+			<button onclick="toggleOptionsMenu();" title="Toggle display options.">
+				<svg viewBox="0 0 16 16" style="width: 14px; fill: currentColor;"><use xlink:href="#svg-settings-sliders"></use></svg>
+			</button>
 		</div>
 		<div class="header-section" style="flex: 1 0 auto;">
 			<svg id="app-icon" height="36" fill="none" viewBox="0 0 600 600"><use xlink:href="#svg-sepia"></use></svg>
@@ -50,10 +53,10 @@
 				<svg viewBox="0 0 16 16" style="width: 14px; fill: currentColor;"><use xlink:href="#svg-folder"></use></svg>
 			</button>-->
 			<button onclick="createNewChat();" title="Create a new chat, forget history and reload options.">
-				<svg viewBox="0 0 16 16" style="width: 14px; fill: currentColor;"><use xlink:href="#svg-add-btn"></use></svg>
+				<svg viewBox="0 0 16 16" style="width: 14px; fill: currentColor;"><use xlink:href="#svg-plus-btn"></use></svg>
 			</button>
-			<button onclick="toggleOptionsMenu();" title="Toggle display options.">
-				<svg viewBox="0 0 16 16" style="width: 14px; fill: currentColor;"><use xlink:href="#svg-settings-sliders"></use></svg>
+			<button onclick="closeChat();" title="Close existing chat and delete history.">
+				<svg viewBox="0 0 16 16" style="width: 14px; fill: currentColor;"><use xlink:href="#svg-cross-btn"></use></svg>
 			</button>
 		</div>
 	</div>
@@ -188,8 +191,18 @@
 				</g>
 			</svg>
 			<svg viewBox="0 0 16 16">
-				<g id="svg-add-btn">
-					<path fill-rule="evenodd" clip-rule="evenodd" d="M15 1H1V15H15V1ZM7 4H9V7H12V9H9V12H7V9H4V7H7V4Z"/>
+				<g id="svg-plus-btn">
+					<path d="m6.903 3.623v3.283h-3.283v2.189h3.283v3.283h2.189v-3.283h3.283v-2.189h-3.283v-3.283z" stroke-width="1.094"/>
+				</g>
+			</svg>
+			<svg viewBox="0 0 16 16">
+				<g id="svg-minus-btn">
+					<rect x="3.631" y="6.892" width="8.798" height="2.194"/>
+				</g>
+			</svg>
+			<svg viewBox="0 0 16 16">
+				<g id="svg-cross-btn">
+					<path d="m10.32 4.131-2.321 2.321-2.321-2.321-1.548 1.548 2.321 2.321-2.321 2.321 1.548 1.548 2.321-2.321 2.321 2.321 1.548-1.548-2.321-2.321 2.321-2.321z" stroke-width="1.094"/>
 				</g>
 			</svg>
 			<svg viewBox="0 0 20 20">

@@ -20,6 +20,8 @@ SEPIA LLM experiments is a repository to explore LLM application in the SEPIA as
   - [Mistral 7B Instruct v0.3](https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3) - The instruction tuned 7B v0.3 model. Solid, fast and open.
 - [Microsoft's Phi 3](https://azure.microsoft.com/en-us/blog/introducing-phi-3-redefining-whats-possible-with-slms/) - Interesting models in different sizes and formats from Microsoft. 
   - [Phi 3 3.8B](https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf) - Phi 3 mini with 3.8B parameters, in GGUF format, directly from Microsoft.
+- [OLMo 7B](https://blog.allenai.org/olmo-open-language-model-87ccfc95f580) - A 7B model form Ai2, that was trained with completely transparent and open training data.
+  - [OLMo 7B Instruct](https://huggingface.co/allenai/OLMo-7B-Instruct-hf/) - The 7B instruction tuned model.
 - [TinyLlama 1.1B](https://github.com/jzhang38/TinyLlama) - A very small, open LLM with 1.1B parameters. Good for experiments on Raspberry Pi etc.
   - [TinyLlama 1.1 B Chat v1.0](https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0) - A fine tuned version for chats (instruction).
  
