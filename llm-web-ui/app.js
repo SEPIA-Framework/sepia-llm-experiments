@@ -15,6 +15,10 @@ textInputEle.addEventListener('keyup', (ev) => {
 });
 const abortProcButton = document.getElementById("chat-input-abort-button");
 const mainChatView = document.getElementById("main-chat-view");
+//header
+var createChatBtn = document.getElementById("create-chat-btn");
+var closeChatBtn = document.getElementById("close-chat-btn");
+var editHistoryBtn = document.getElementById("edit-history-btn");
 //menu
 var chatSlotIdEle = optionsMenu.querySelector("[name=option-chat-slot-id]");
 var chatHistoryMaxEle = optionsMenu.querySelector("[name=option-chat-history-max]");
@@ -105,6 +109,9 @@ function onPageReady(){
 		if (err.name == "FailedToLoadPromptFile"){
 			console.error("Failed to load system prompt file.", err);
 			showPopUp("ERROR: Failed to load system prompt file.");
+		}else if (err.name == "FailedToLoadSystemPrompt"){
+			console.error("Failed to load custom system prompt.", err);
+			showPopUp("ERROR: Failed to load custom system prompt. Please add your prompt via the settings.");
 		}else if (err.name == "FailedToLoadLlmServerInfo"){
 			console.error("Unable to contact the LLM server.", err);
 			showPopUp("ERROR: Unable to contact the LLM server. Please double-check if your server is running and reachable, then reload this page.");
@@ -118,6 +125,18 @@ function onPageReady(){
 		isInitialized = true;
 	});
 }
+function toggleButtonVis(enableChat){
+	if (enableChat){
+		createChatBtn.style.display = "none";
+		closeChatBtn.style.removeProperty("display");
+		//editHistoryBtn.classList.remove("disabled");
+	}else{
+		createChatBtn.style.removeProperty("display");
+		closeChatBtn.style.display = "none";
+		//editHistoryBtn.classList.add("disabled");
+	}
+}
+toggleButtonVis(false);
 
 //create/close chat
 function startChat(){
@@ -177,6 +196,7 @@ function startChat(){
 function initNewChat(welcomeMsg, cacheSysPrompt){
 	console.log("Starting new chat - Slot ID: " + activeSlotId + ", Max. history: " + maxHistory);
 	console.log("Template:", activeTemplate.name, activeTemplate);
+	toggleButtonVis(true);
 	
 	var welcomeMessageText = activeSystemPromptInfo.welcomeMessage || "Hello world :-)";
 	if (!welcomeMsg){
@@ -212,11 +232,13 @@ function closeChat(){
 			var msg = showPopUp("Cleaning up ...");
 			freeServerSlot(activeSlotId).then((res) => {
 				msg.popUpClose();
+				toggleButtonVis(false);
 				resolve({success: true, closedSlot: true});
 			}).catch((err) => {
 				showPopUp("I'm sorry, but the chat clean-up failed :-(. See log for more info.");
 				console.error("Failed to reset slot prompt:", err);		//DEBUG
 				msg.popUpClose();
+				toggleButtonVis(false);
 				reject({
 					name: "FailedToCloseSlot", 
 					message: ("Failed to close slot."),
@@ -225,6 +247,7 @@ function closeChat(){
 			});
 		}else{
 			chatIsClosed = true;
+			toggleButtonVis(false);
 			resolve({success: true});
 		}
 	});
@@ -247,6 +270,16 @@ function createNewChat(){
 function cleanUpOnPageClose(){
 	abortCompletion();
 	closeChat();
+}
+
+function editChatHistory(){
+	if (editHistoryBtn.classList.contains("disabled")){
+		showPopUp("To view/edit your chat history, please start a chat first.");
+	}else if (chatIsClosed){
+		showSystemPromptEditor();
+	}else{
+		showChatHistoryEditor();
+	}
 }
 
 function freeAllServerSlotsPopUp(){
@@ -507,12 +540,175 @@ function scrollToNewText(checkPos){
 }
 var lastAutoScrollPosEnd = undefined;
 
+function showSystemPromptEditor(){
+	var content = buildSystemPromptEditComponent();
+	if ((!systemPromptEle.value || systemPromptEle.value == "custom") && customSystemPrompt){
+		content.setSystemPrompt(customSystemPrompt);
+	}
+	var buttons = [{
+		name: "Save",
+		fun: function(){
+			systemPromptEle.value = "custom";
+			customSystemPrompt = content.getSystemPrompt();
+			loadSystemPrompt(systemPromptEle.value).catch((err) => {
+				console.error("Failed to load system prompt.", err);
+				showPopUp("ERROR: " + (err?.message || "Failed to load system prompt."));
+				//TODO: reset properly
+				systemPromptEle.value = systemPromptEle.options[1].value;
+			});
+		},
+		closeAfterClick: true
+	},{
+		name: "Cancel",
+		closeAfterClick: true
+	}];
+	showPopUp(content, buttons, {
+		width: "512px"
+	});
+}
+function exportSystemPromptAndHistory(){
+	return {
+		systemPromptSelected: systemPromptEle.value,
+		systemPrompt: ((systemPromptEle.value == "custom")? customSystemPrompt : ""),
+		history: getHistory(activeSlotId)
+	}
+}
+function restoreSystemPromptAndHistory(data){
+	systemPromptEle.value = data.systemPromptSelected;
+	customSystemPrompt = data.systemPrompt;
+	updateHistory(activeSlotId, data.history);
+	return loadSystemPrompt(data.systemPromptSelected);
+}
+function showChatHistoryEditor(){
+	var content = buildChatHistoryListComponent();
+	var buttons = [{
+		name: "Export",
+		fun: function(){
+			var data = exportSystemPromptAndHistory();
+			saveAs("my-chat.txt", data);
+		},
+		closeAfterClick: false
+	},{
+		name: "Import",
+		fun: function(){
+			openTextFilePrompt(function(txt){
+				try {
+					var txtJson = JSON.parse(txt);
+					restoreSystemPromptAndHistory(txtJson).then(() => {
+						pop.popUpClose();
+						showChatHistoryEditor();
+					}).catch((err) => {
+						showPopUp("Failed to load file. JSON data seems to be corrupted.");
+					});
+				}catch (err){
+					console.error("Failed to load file. Could not parse JSON data:", err);		//DEBUG
+					showPopUp("Failed to load file. Could not parse JSON data.");
+				}
+			}, function(err){
+				console.error("Failed to load file:", err);		//DEBUG
+				showPopUp("Failed to load file.");
+			});
+		},
+		closeAfterClick: false
+	},{
+		name: "Close",
+		closeAfterClick: true
+	}];
+	var pop = showPopUp(content, buttons, {
+		width: "512px"
+	});
+}
+function buildSystemPromptEditComponent(){
+	var content = document.createElement("div");
+	content.className = "section-wrapper";
+	var info = document.createElement("p");
+	info.textContent = "Here you can add/edit your system prompt:";
+	var textC = document.createElement("div");
+	textC.className = "text-container";
+	var txt = document.createElement("textarea");
+	if (!systemPromptEle.value || systemPromptEle.value == "custom"){
+		txt.placeholder = ("Enter your prompt here.");
+	}else{
+		txt.placeholder = ("Currently selected preset:\n" + systemPromptEle.value);
+	}
+	content.appendChild(info);
+	content.appendChild(textC);
+	textC.appendChild(txt);
+	content.getSystemPrompt = function(){
+		return txt.value;
+	};
+	content.setSystemPrompt = function(newVal){
+		txt.value = newVal;
+	};
+	return content;
+}
+function buildChatHistoryListComponent(){
+	var content = document.createElement("div");
+	content.className = "section-wrapper";
+	var info = document.createElement("p");
+	info.textContent = "Here you can edit your chat history:";
+	var list = document.createElement("div");
+	list.className = "list-container";
+	content.appendChild(list);
+	var slotHistory = getHistory(activeSlotId);
+	if (!slotHistory?.length){
+		list.innerHTML = "<p style='text-align: center;'>- no history yet -</p>";
+		return content;
+	}
+	slotHistory.filter((itm) => { return itm.role != "removed" }).forEach(function(entry, i){
+		var item = document.createElement("div");
+		item.className = "list-item history-entry";
+		var wrap = document.createElement("div");
+		wrap.className = "entry-wrapper";
+		var header = document.createElement("div");
+		header.className = "entry-header";
+		var role = document.createElement("span");
+		if (entry.role == "user") role.className = "role-user";
+		else if (entry.role == "assistant") role.className = "role-assistant";
+		role.textContent = entry.role;
+		var timestamp = document.createElement("span");
+		timestamp.className = "chat-hist-time";
+		timestamp.textContent = new Date(entry.timestamp || Date.now()).toLocaleString();
+		header.appendChild(role);
+		header.appendChild(timestamp);
+		var previewTxt = document.createElement("div");
+		previewTxt.className = "list-item-desc";
+		previewTxt.setAttribute("tabindex", "0");
+		previewTxt.addEventListener("click", function(){
+			var pop = showTextEditor(entry.content, {
+				intro: "Here you can edit your history:",
+				placeholder: "Your chat history",
+				width: "512px"
+			}, function(newTxt){
+				entry.content = newTxt;
+				prevTxtSpan.textContent = newTxt;
+			});
+		});
+		var prevTxtSpan = document.createElement("span");
+		prevTxtSpan.textContent = entry.content;
+		previewTxt.appendChild(prevTxtSpan);
+		wrap.appendChild(header);
+		wrap.appendChild(previewTxt);
+		var removeBtn = document.createElement("button");
+		removeBtn.innerHTML = '<svg viewBox="0 0 16 16" style="width: 14px; fill: currentColor;"><use xlink:href="#svg-minus-btn"></use></svg>';
+		removeBtn.addEventListener("click", function(){
+			entry.role = "removed";
+			entry.content = "";
+			item.remove();
+		});
+		item.appendChild(wrap);
+		item.appendChild(removeBtn);
+		list.appendChild(item);
+	});
+	return content;
+}
 
 //------- API interface ---------
 
 var activeModel = "";
 var activeTemplate = undefined;
 var activeSystemPrompt = "";
+var customSystemPrompt = "";
 var activeSystemPromptInfo = {};
 var activeSlotId = -1;
 
@@ -528,7 +724,8 @@ function addToHistory(slotId, role, content){
 	if (maxHistory === 0) return;
 	chatHistory[slotId].push({
 		role: role,
-		content: content
+		content: content,
+		timestamp: Date.now()
 	});
 	//remove first element?
 	if (maxHistory > -1 && chatHistory.length > maxHistory){
@@ -536,7 +733,10 @@ function addToHistory(slotId, role, content){
 	}
 }
 function getHistory(slotId){
-	return chatHistory[slotId] || [];
+	return chatHistory[slotId].filter((itm) => { return itm.role != "removed" }) || [];
+}
+function updateHistory(slotId, newHist){
+	chatHistory[slotId] = newHist;
 }
 
 //format prompt before sending
@@ -991,7 +1191,8 @@ const systemPrompts = [{
 	expectSepiaJson: true,
 	promptVariables: [{key: "infoPrompt", name: "{{LLM_INFO_PROMPT}}"}]
 },{
-	name: "No System Prompt",
+	name: "Custom System Prompt",
+	value: "custom",
 	promptText: "",
 	welcomeMessage: "Hello World.",
 	expectSepiaJson: false,
@@ -1002,24 +1203,41 @@ const systemPrompts = [{
 systemPrompts.forEach((sp, index) => {
 	var opt = document.createElement("option");
 	opt.textContent = sp.name;
-	opt.value = sp.name;
+	opt.value = (sp.value != undefined)? sp.value : sp.name;
 	if (index == 0) opt.selected = true;
 	systemPromptEle.appendChild(opt);
 });
 //load prompts via selector
 systemPromptEle.addEventListener("change", function(){
 	loadSystemPrompt(systemPromptEle.value).catch((err) => {
-		console.error("Failed to load system prompt file.", err);
-		showPopUp("ERROR: Failed to load system prompt file.");
-		//TODO: reset field
+		if (err.name == "FailedToLoadSystemPrompt"){
+			console.error("Failed to load system prompt.", err);
+			showPopUp("ERROR: " + (err?.message || "Failed to load system prompt."));
+		}else{
+			console.error("Failed to load system prompt file.", err);
+			showPopUp("ERROR: " + (err?.message || "Failed to load system prompt file."));
+		}
+		//TODO: reset properly
+		systemPromptEle.value = systemPromptEle.options[1].value;
 	});
 });
 //prompt loader
 function loadSystemPrompt(name){
 	return new Promise((resolve, reject) => {
-		var sysPromptInfo = systemPrompts.find((sp) => sp.name == name);
+		var sysPromptInfo = systemPrompts.find((sp) => sp.value == name || sp.name == name);
 		activeSystemPromptInfo = sysPromptInfo;
-		if (sysPromptInfo.file){
+		if (name == undefined || name == "custom"){
+			if (!customSystemPrompt){
+				reject({
+					name: "FailedToLoadSystemPrompt",
+					message: "Failed to load custom system prompt. Please define via settings."
+				});
+			}else{
+				activeSystemPrompt = customSystemPrompt;
+				expectSepiaJsonEle.checked = false;
+				resolve(activeSystemPrompt);
+			}
+		}else if (sysPromptInfo.file){
 			var loadMsg = showPopUp("Loading system prompt file...");
 			loadFile("system-prompts/" + sysPromptInfo.file, "text").then((sp) => {
 				//apply text from file

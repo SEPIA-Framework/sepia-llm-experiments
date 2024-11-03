@@ -141,7 +141,18 @@ function showPopUp(content, buttons, options){
 	}
 	//buttons
 	if (buttons && buttons.length){
-		//TODO: implement
+		var btnBox = document.createElement("div");
+		btnBox.className = "pop-up-buttons";
+		popUpBox.appendChild(btnBox);
+		buttons.forEach(function(btn, i){
+			var btnEle = document.createElement("button");
+			btnEle.textContent = btn.name || ("Button " + i);	
+			btnEle.addEventListener("click", function(){
+				if (typeof btn.fun == "function") btn.fun();
+				if (btn.closeAfterClick) popUpOverlay.popUpClose();
+			});
+			btnBox.appendChild(btnEle);
+		});
 	}
 	//close function
 	var isClosed = false;
@@ -166,6 +177,44 @@ function showPopUp(content, buttons, options){
 	popUpOverlay.appendChild(popUpBox);
 	document.body.appendChild(popUpOverlay);			
 	return popUpOverlay;
+}
+function showTextEditor(textVal, options, onSaveCallback){
+	if (!options) options = {};
+	var content = document.createElement("div");
+	content.className = "section-wrapper";
+	var info = document.createElement("p");
+	info.textContent = options.intro || "Your text:";
+	var textC = document.createElement("div");
+	textC.className = "text-container";
+	var txt = document.createElement("textarea");
+	if (options.placeholder) txt.placeholder = options.placeholder;
+	content.appendChild(info);
+	content.appendChild(textC);
+	textC.appendChild(txt);
+	content.getText = function(){
+		return txt.value;
+	};
+	content.setText = function(newVal){
+		txt.value = newVal;
+	};
+	if (textVal){
+		content.setText(textVal);
+	}
+	var buttons = [{
+		name: "Save",
+		fun: function(){
+			if (onSaveCallback) onSaveCallback(content.getText());
+		},
+		closeAfterClick: true
+	},{
+		name: "Cancel",
+		closeAfterClick: true
+	}];
+	var pop = showPopUp(content, buttons, {
+		width: options.width || "480px"
+	});
+	pop.contentEle = content;
+	return pop;
 }
 function showFormPopUp(formFields, onSubmit){
 	var formEle = document.createElement("form");
@@ -340,4 +389,28 @@ function saveAs(filename, dataObj, parentViewEle){
 		window.URL.revokeObjectURL(url);
 		dummyEle.removeChild(a);
 	}, 0);
+}
+
+function openTextFilePrompt(onSuccess, onError){
+	// Create an input element
+	const input = document.createElement('input');
+	input.type = 'file';
+	input.accept = '.txt';
+	input.addEventListener('change', (ev) => {
+		const file = ev.target.files[0];
+		if (file) {
+			const reader = new FileReader();
+			reader.onload = (e) => {
+				const content = e.target.result;
+				if (onSuccess) onSuccess(content);
+				else console.log("File content:", content);
+			};
+			reader.onerror = (err) => {
+				if (onError) onError(err);
+				else console.error("Error reading file:", err);
+			};
+			reader.readAsText(file);
+		}
+	});
+	input.click();
 }
