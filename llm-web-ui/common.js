@@ -390,6 +390,54 @@ function saveAs(filename, dataObj, parentViewEle){
 		dummyEle.removeChild(a);
 	}, 0);
 }
+function addDragAndDropFileImport(ele, onSuccess, onError, options){
+	var dragOverlay = document.createElement("div");
+	dragOverlay.className = "drag-overlay";
+	dragOverlay.textContent = options.overlayText || "Drag & Drop";
+	dragOverlay.style.display = "none";
+	ele.appendChild(dragOverlay);
+	ele.addEventListener('dragover', (ev) => {
+		ev.preventDefault();
+		ele.classList.add("dragover");
+		dragOverlay.style.removeProperty("display");
+	});
+	dragOverlay.addEventListener('dragleave', () => {
+		ele.classList.remove("dragover");
+		dragOverlay.style.display = "none";
+	});
+	dragOverlay.addEventListener('drop', (ev) => {
+		ev.preventDefault();
+		ele.classList.remove("dragover");
+		dragOverlay.style.display = "none";
+		const firstFile = (ev.dataTransfer?.files)? ev.dataTransfer.files[0] : null;
+		if (!firstFile) return;
+		if (options.fileType && !firstFile.type == options.fileType){
+			//example: "text/plain"
+			if (onError) onError({name: "FileTypeError", message: "File needs to be of type '" + options.fileType + "'"});
+			return;
+		}
+		if (options.fileEnding && !firstFile.endsWith(options.fileEnding)){
+			//example: ".txt"
+			if (onError) onError({name: "FileTypeError", message: "File needs to end with '" + options.fileEnding + "'"});
+			return;
+		}
+		readTextFileAsPromise(firstFile).then((content) => {
+			if (onSuccess) onSuccess(content);
+			else console.log("File content:", content);
+		}).catch((err) => {
+			if (onError) onError(err);
+			else console.error("Error reading file:", err);
+		});
+	});
+}
+function readTextFileAsPromise(file){
+	return new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = () => resolve(reader.result);
+		reader.onerror = () => reject(reader.error);
+		reader.readAsText(file);
+	});
+}
 
 function openTextFilePrompt(onSuccess, onError){
 	// Create an input element
@@ -398,19 +446,13 @@ function openTextFilePrompt(onSuccess, onError){
 	input.accept = '.txt';
 	input.addEventListener('change', (ev) => {
 		const file = ev.target.files[0];
-		if (file) {
-			const reader = new FileReader();
-			reader.onload = (e) => {
-				const content = e.target.result;
-				if (onSuccess) onSuccess(content);
-				else console.log("File content:", content);
-			};
-			reader.onerror = (err) => {
-				if (onError) onError(err);
-				else console.error("Error reading file:", err);
-			};
-			reader.readAsText(file);
-		}
+		readTextFileAsPromise(file).then((content) => {
+			if (onSuccess) onSuccess(content);
+			else console.log("File content:", content);
+		}).catch((err) => {
+			if (onError) onError(err);
+			else console.error("Error reading file:", err);
+		});
 	});
 	input.click();
 }
