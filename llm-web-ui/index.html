@@ -9,7 +9,7 @@
 	
 	<link rel="stylesheet" href="common.css">
 	<script defer src="common.js"></script>
-	<script defer src="app.js"></script>
+	<script type="module" src="app.js"></script>
 
 	<title>SEPIA LLM Test</title>
 	<!-- open graph settings -->
@@ -85,7 +85,7 @@
 				<div class="group" title="Switch between light and dark mode for the UI.">
 					<label>Color style dark:</label><input name="option-dark-mode" type="checkbox">
 				</div>
-				<div class="group" title="If the server has slots enabled you can (in theory) choose a slot ID.">
+				<div class="group" title="If the server has slots enabled, a free slot is assigned automatically, but in theory, you can choose a slot ID.">
 					<label>Chat slot ID:</label><input name="option-chat-slot-id" type="number" value=0 min=0 max=10>
 				</div>
 				<div class="group" title="Maximum number of messages to remember. -1 means everything the model context length can handle.">
@@ -114,7 +114,7 @@
 					<h3 style="margin: 16px 8px;">SEPIA LLM Experiments:</h3>
 				</div>
 				<div class="nc-menu-section">
-					<button class="big" onclick="startChat();">START DEMO</button>
+					<button class="big" onclick="startChat();">START CHAT</button>
 				</div>
 				<div class="nc-menu-section">
 					<h3 style="margin: 16px 8px;">SEPIA Pages:</h3>

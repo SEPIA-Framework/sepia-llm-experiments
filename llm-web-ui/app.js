@@ -1,4 +1,20 @@
-console.log("Welcome to the SEPIA LLM Web UI :-)");
+import * as uiComponents from "./ui.components.js"
+import * as chatHistory from "./chat.history.js"
+import * as llmSettings from "./llm.settings.js"
+
+var ui = {
+	components: uiComponents
+}
+var chat = {
+	history: chatHistory
+}
+var llm = {
+	settings: llmSettings
+}
+//export for testing
+window.ui = ui;
+window.chat = chat;
+window.llm = llm;
 
 //DOM elements
 const inputFormEles = document.querySelectorAll(".chat-input-form");
@@ -19,14 +35,6 @@ const mainChatView = document.getElementById("main-chat-view");
 var createChatBtn = document.getElementById("create-chat-btn");
 var closeChatBtn = document.getElementById("close-chat-btn");
 var editHistoryBtn = document.getElementById("edit-history-btn");
-//menu
-var chatSlotIdEle = optionsMenu.querySelector("[name=option-chat-slot-id]");
-var chatHistoryMaxEle = optionsMenu.querySelector("[name=option-chat-history-max]");
-var chatTemplateEle = optionsMenu.querySelector("[name=option-chat-template]");
-var systemPromptEle = optionsMenu.querySelector("[name=option-system-prompt]");
-var streamResultEle = optionsMenu.querySelector("[name=option-stream-result]");
-var cachePromptsOnServerEle = optionsMenu.querySelector("[name=option-cache-prompts]");
-var expectSepiaJsonEle = optionsMenu.querySelector("[name=option-expect-sepia-json]");
 
 //clean up before page close (TODO: mobile might require 'visibilitychange')
 window.addEventListener("beforeunload", function(e){
@@ -39,42 +47,28 @@ if (!API_URL.endsWith("/")) API_URL += "/";
 console.log("LLM server URL:", API_URL);
 
 var isInitialized = false;
+var blockChatStart = false;
 var chatIsClosed = true;
 var initBuffer = [];
+var startChatBuffer = [];
 var completionFinishedBuffer = [];
-
-var llmServerSlots = 0;
 
 var isPromptProcessing = false;
 
 //initialize UI
 function onPageReady(){
+	console.log("Welcome to the SEPIA LLM Web UI :-)");
 	getServerProps().then((serverInfo) => {
 		console.log("Server info:", serverInfo);
 		//make use of server info
 		if (serverInfo?.default_generation_settings?.model){
 			var model = serverInfo.default_generation_settings.model;
-			var baseModel = model.match(/(tiny|olmo)/i) || model.match(/(gemma|mistral|phi|llama)/i);	//TODO: add more/fix when templates grow
-			if (baseModel){
-				console.log("Server model family: " + baseModel[0]);
-				var possibleTemplateMatch = chatTemplates.find(t => t.name.toLowerCase().indexOf(baseModel[0].toLowerCase()) >= 0);
-				if (possibleTemplateMatch){
-					chatTemplateEle.value = possibleTemplateMatch.name;
-				}
+			var possibleTemplateMatch = llm.settings.findBestModelMatch(model);
+			if (possibleTemplateMatch){
+				llm.settings.setChatTemplate(possibleTemplateMatch.name);
 			}
 		}
-		if (!serverInfo?.total_slots || serverInfo.total_slots === 1){
-			//disable slot ID if none or only 1 is available
-			chatSlotIdEle.value = 0;
-			chatSlotIdEle.max = 0;
-			chatSlotIdEle.disabled = true;
-			llmServerSlots = 1;
-		}else{
-			chatSlotIdEle.max = (serverInfo.total_slots - 1);
-			chatSlotIdEle.value = Math.floor(Math.random() * serverInfo.total_slots);	//TODO: for now we assign a random slot
-			llmServerSlots = serverInfo.total_slots;
-		}
-		console.log("LLM server slots:", llmServerSlots);
+		llm.settings.setNumberOfServerSlots(serverInfo?.total_slots);
 		//load slot info
 		return getServerSlots(true);	//NOTE: is soft-fail = will not throw error for catch
 	})
@@ -85,24 +79,22 @@ function onPageReady(){
 			}else{
 				console.error("Unable to load LLM server slot info.", serverSlots.error);
 			}
-			cachePromptsOnServerEle.checked = false;
-			cachePromptsOnServerEle.disabled = true;
-			cachePromptsOnServerEle.title += "- NOTE: Prompt cache has been disabled due to missing slot info and to avoid issues with concurrent users.";
+			llm.settings.disablePromptCachingOnServer();
 			console.warn("NOTE: To avoid issues with concurrent users the prompt cache has been disabled!");
-			llmServerSlots = 0;		//NOTE: 0 is disabled
+			llm.settings.setNumberOfServerSlots(0);		//NOTE: 0 is disabled
 		}else{
 			//NOTE: we check for free slots later again
 		}
-		//select system prompt
-		var sysPromptName = systemPromptEle.value;		//TODO: keep selected or choose new?
-		return loadSystemPrompt(sysPromptName);
+		//load system prompt
+		return llm.settings.loadSystemPrompt();
 	})
 	.then((sysPrompt) => {
 		//continue
 		isInitialized = true;
+		let initHadErrors = false;
 		while (initBuffer.length){
 			var next = initBuffer.shift();
-			if (typeof next == "function") next();
+			if (typeof next?.fun == "function") next.fun(initHadErrors);
 		}
 	})
 	.catch((err) => {
@@ -118,11 +110,17 @@ function onPageReady(){
 		}else if (err.name == "FailedToLoadLlmServerSlots"){
 			//NOTE: this will only trigger when 'getServerSlots' is called with softFail = false
 			console.error("Unable to load LLM server slot info.", err);
-			llmServerSlots = 0;
+			llm.settings.setNumberOfServerSlots(0);
 		}else{
 			console.error("Error in 'onPageReady' function:", err);
 		}
 		isInitialized = true;
+		let initHadErrors = true;
+		while (initBuffer.length){
+			var next = initBuffer.shift();
+			if (typeof next?.fun == "function") next.fun(initHadErrors);
+		}
+		blockChatStart = true;
 	});
 }
 function toggleButtonVis(enableChat){
@@ -140,65 +138,90 @@ toggleButtonVis(false);
 
 //create/close chat
 function startChat(){
+	if (blockChatStart){
+		//TODO: for now we just block, but we should try init again instead
+		showPopUp("There was an error during the initialization. Please reload the page.", [
+			{name: "Reload", fun: function(){ window.location.reload(); }}
+		]);
+		return;
+	}
 	chatIsClosed = false;
 	contentPage.classList.remove("empty");
 	contentPage.classList.add("single-instance");
 	
 	if (!isInitialized){
 		var plzWaitMsg = showPopUp("Please wait a second while the UI is trying to contact the (local, private) LLM server.");
-		initBuffer.push(function(){ plzWaitMsg.popUpClose(); });
-		if (!initBuffer.length){
-			initBuffer.push(function(){ startChat(); });
+		initBuffer.push({
+			id: "close-wait-msg",
+			fun: function(failedInit){ plzWaitMsg.popUpClose(); }
+		});
+		if (!initBuffer.find((e) => e.id == "start-chat")){
+			//make sure we add this only once
+			initBuffer.push({
+				id: "start-chat",
+				fun: function(initHadErrors){
+					if (!initHadErrors){
+						startChat();
+					}else{
+						if (!chatIsClosed) closeChat();
+					}
+				}
+			});
 		}
 		return;
 	}
-	
-	activeModel = chatTemplateEle.value || chatTemplates[0].name;
-	activeTemplate = chatTemplates.find(t => t.name == activeModel);
-	maxHistory = +chatHistoryMaxEle.value;
-	cachePromptsOnServer = cachePromptsOnServerEle.checked;
-	expectSepiaJson = expectSepiaJsonEle.checked;
 		
 	//check free slots
-	if (llmServerSlots != 0){
+	var numOfSlots = llm.settings.getNumberOfServerSlots();
+	if (numOfSlots > 0){
 		var welcomeMsg = createNewChatAnswer("");
 		welcomeMsg.attach();
 		welcomeMsg.showLoader(true);
-		getFreeServerSlot().then((slotId) => {
-			if (slotId != undefined){
+		getFreeServerSlot(numOfSlots).then((slotId) => {
+			if (slotId != undefined && slotId > -1){
 				//assign free slot
-				activeSlotId = slotId;
-				chatSlotIdEle.value = activeSlotId;
+				llm.settings.setActiveServerSlot(slotId);
 				initNewChat(welcomeMsg, true);
 			}else{
-				//no free slots
+				//no free slots or unable to read slot data
 				var msg = showFormPopUp([
-					{label: "Sorry, but it seem there are currently no free slots available (LLM server is busy). Please try again later!"},
+					{label: "Sorry, but it seems there are currently no free slots available (LLM server is busy). Please try again later!"},
 					{submit: true, name: "Free up slots"}
 				], function(){
 					closeChat().finally(() => {
 						freeAllServerSlotsPopUp();
 					});
 				});
-				activeSlotId = -1;
-				chatSlotIdEle.value = activeSlotId;
-				welcomeMsg.hideLoader();
 				welcomeMsg.setText("I'm very busy right now. Please come back later! :-)");
 				welcomeMsg.setFooterText("CHAT CLOSED");
+				welcomeMsg.hideLoader();
+				llm.settings.setActiveServerSlot(-1);
+				startChatBuffer = [];	//TODO: remove buffered actions or keep?
+				toggleButtonVis(true);
 				chatIsClosed = true;
 			}
 		});
 	}else{
-		activeSlotId = +chatSlotIdEle.value;
-		initNewChat();
+		//incompatible server
+		showPopUp("Sorry, but it seems that your server is incompatible with this version of the app. Please make sure it supports slot management.");
+		var welcomeMsg = createNewChatAnswer("");
+		welcomeMsg.attach();
+		welcomeMsg.setText("Please check your server settings and make sure to enable slot management.");
+		welcomeMsg.setFooterText("CHAT CLOSED");
+		llm.settings.setActiveServerSlot(-1);
+		startChatBuffer = [];	//TODO: remove buffered actions or keep?
+		toggleButtonVis(true);
+		chatIsClosed = true;
 	}
 }
 function initNewChat(welcomeMsg, cacheSysPrompt){
-	console.log("Starting new chat - Slot ID: " + activeSlotId + ", Max. history: " + maxHistory);
-	console.log("Template:", activeTemplate.name, activeTemplate);
+	var activeSlotId = llm.settings.getActiveServerSlot();
+	console.log("Starting new chat - Slot ID: " + activeSlotId + ", Max. history: " + llm.settings.getMaxChatHistory());
+	var activeTemplate = llm.settings.getChatTemplate();
+	console.log("Template:", activeTemplate?.name, activeTemplate);
 	toggleButtonVis(true);
 	
-	var welcomeMessageText = activeSystemPromptInfo.welcomeMessage || "Hello world :-)";
+	var welcomeMessageText = llm.settings.getSystemPromptInfo()?.welcomeMessage || "Hello world :-)";
 	if (!welcomeMsg){
 		welcomeMsg = createNewChatAnswer();
 		welcomeMsg.attach();
@@ -211,26 +234,39 @@ function initNewChat(welcomeMsg, cacheSysPrompt){
 			//console.error("sys prompt response:", resJson);		//DEBUG
 			welcomeMsg.hideLoader();
 			welcomeMsg.setText(welcomeMessageText);
+			onNewChatReady();
 		}).catch((err) => {
 			//TODO: handle
 			console.error("Failed to upload system prompt:", err);		//DEBUG
+			welcomeMsg.hideLoader();
+			onNewChatReady();
 		});
 	}else{
 		welcomeMsg.hideLoader();
 		welcomeMsg.setText(welcomeMessageText);
+		onNewChatReady();
+	}
+}
+function onNewChatReady(){
+	//restore history
+	chat.history.restore();
+	//have some actions buffered?
+	while (startChatBuffer.length){
+		var next = startChatBuffer.shift();
+		if (typeof next?.fun == "function") next.fun();
 	}
 }
 function closeChat(){
 	contentPage.classList.add("empty");
 	contentPage.classList.remove("single-instance");
-	chatHistory = {};
+	chat.history.clearAll();
 	mainChatView.innerHTML = "";
 	return new Promise((resolve, reject) => {
-		if (!chatIsClosed && llmServerSlots > 0){
+		if (!chatIsClosed && llm.settings.getNumberOfServerSlots() > 0){
 			//try to clean up server history
 			chatIsClosed = true;
 			var msg = showPopUp("Cleaning up ...");
-			freeServerSlot(activeSlotId).then((res) => {
+			freeServerSlot(llm.settings.getActiveServerSlot()).then((res) => {
 				msg.popUpClose();
 				toggleButtonVis(false);
 				resolve({success: true, closedSlot: true});
@@ -276,9 +312,9 @@ function editChatHistory(){
 	if (editHistoryBtn.classList.contains("disabled")){
 		showPopUp("To view/edit your chat history, please start a chat first.");
 	}else if (chatIsClosed){
-		showSystemPromptEditor();
+		ui.components.showSystemPromptEditor();
 	}else{
-		showChatHistoryEditor();
+		ui.components.showChatHistoryEditor();
 	}
 }
 
@@ -288,6 +324,7 @@ function freeAllServerSlotsPopUp(){
 		//{customButton: {name: "Maybe", fun: function(){ console.log("OK"); }}},
 		{submit: true, name: "I know what I'm doing. Let's go!"}
 	], function(formData){
+		var llmServerSlots = llm.settings.getNumberOfServerSlots();
 		if (llmServerSlots >= 1){
 			var msg = showPopUp("Cleaning up ...");
 			var sfpa = [];
@@ -311,9 +348,9 @@ function sendInput(){
 	formatTextArea(textInputEle);
 	var newChatMsg = createNewChatPrompt(message);
 	newChatMsg.attach();
-	addToHistory(activeSlotId, "user", message);
+	chat.history.add(llm.settings.getActiveServerSlot(), "user", message);
 	isPromptProcessing = true;
-	chatCompletion(activeSlotId, message, activeTemplate).then(answer => {
+	chatCompletion(llm.settings.getActiveServerSlot(), message, llm.settings.getChatTemplate()).then(answer => {
 		isPromptProcessing = false;
 		console.log("sendInput - answer:", answer);	//DEBUG
 	}).catch(err => {
@@ -381,27 +418,40 @@ abortProcButton.addEventListener("click", function(){
 });
 hideAbortButton();	//hide by default
 
-function createNewChatAnswer(message){
-	var cb = createGeneralChatBubble();
+function clearChatMessages(){
+	mainChatView.innerHTML = "";
+}
+function restoreChatMessages(msgArray){
+	msgArray?.forEach((msg) => {
+		if (!msg.content) return;
+		if (msg.role == "user"){
+			createNewChatPrompt(msg.content, msg).attach();
+		}else if (msg.role == "assistant"){
+			createNewChatAnswer(msg.content, msg).attach();
+		}
+	});
+}
+function createNewChatAnswer(message, options){
+	var cb = createGeneralChatBubble(options);
 	cb.c.classList.add("assistant-reply");
 	cb.senderName.textContent = "SEPIA";
 	cb.senderIcon.innerHTML = '<svg fill="none" viewBox="0 0 600 600"><use xlink:href="#svg-sepia"></use></svg>';
 	if (message){
-		cb.setText(message);
+		cb.setText(message);	//TODO: improve to parse code etc.
 	}
 	return cb;
 }
-function createNewChatPrompt(message){
-	var cb = createGeneralChatBubble();
+function createNewChatPrompt(message, options){
+	var cb = createGeneralChatBubble(options);
 	cb.c.classList.add("user-prompt");
 	cb.senderName.textContent = "User";
 	cb.senderIcon.innerHTML = '<svg viewBox="0 0 45.532 45.532"><use xlink:href="#svg-profile"></use></svg>';
 	if (message){
-		cb.setText(message);
+		cb.setText(message);	//TODO: improve to parse code etc.
 	}
 	return cb;
 }
-function createGeneralChatBubble(){
+function createGeneralChatBubble(options){
 	var c = document.createElement("div");
 	c.className = "chat-msg-container";
 	var cm = document.createElement("div");
@@ -417,7 +467,14 @@ function createGeneralChatBubble(){
 	senderEle.appendChild(senderIcon);
 	senderEle.appendChild(senderName);
 	var timeEle = document.createElement("div");
-	timeEle.textContent = new Date().toLocaleTimeString();
+	timeEle.className = "date-time";
+	var ts = options?.timestamp || Date.now();
+	var d = new Date(ts);
+	if ((Date.now() - ts) < (24*60*60*1000)){
+		timeEle.textContent = d.toLocaleTimeString();
+	}else{
+		timeEle.textContent = d.toLocaleDateString() + ", " + d.toLocaleTimeString();
+	}
 	h.appendChild(senderEle);
 	h.appendChild(timeEle);
 	var tb = document.createElement("div");
@@ -540,210 +597,13 @@ function scrollToNewText(checkPos){
 }
 var lastAutoScrollPosEnd = undefined;
 
-function showSystemPromptEditor(){
-	var content = buildSystemPromptEditComponent();
-	if ((!systemPromptEle.value || systemPromptEle.value == "custom") && customSystemPrompt){
-		content.setSystemPrompt(customSystemPrompt);
-	}
-	var buttons = [{
-		name: "Save",
-		fun: function(){
-			systemPromptEle.value = "custom";
-			customSystemPrompt = content.getSystemPrompt();
-			loadSystemPrompt(systemPromptEle.value).catch((err) => {
-				console.error("Failed to load system prompt.", err);
-				showPopUp("ERROR: " + (err?.message || "Failed to load system prompt."));
-				//TODO: reset properly
-				systemPromptEle.value = systemPromptEle.options[1].value;
-			});
-		},
-		closeAfterClick: true
-	},{
-		name: "Cancel",
-		closeAfterClick: true
-	}];
-	showPopUp(content, buttons, {
-		width: "512px"
-	});
-}
-function exportSystemPromptAndHistory(){
-	return {
-		systemPromptSelected: systemPromptEle.value,
-		systemPrompt: ((systemPromptEle.value == "custom")? customSystemPrompt : ""),
-		history: getHistory(activeSlotId)
-	}
-}
-function restoreSystemPromptAndHistory(data){
-	systemPromptEle.value = data.systemPromptSelected;
-	customSystemPrompt = data.systemPrompt;
-	updateHistory(activeSlotId, data.history);
-	return loadSystemPrompt(data.systemPromptSelected);
-}
-function showChatHistoryEditor(){
-	var content = buildChatHistoryListComponent();
-	var buttons = [{
-		name: "Export",
-		fun: function(){
-			var data = exportSystemPromptAndHistory();
-			saveAs("my-chat.txt", data);
-		},
-		closeAfterClick: false
-	},{
-		name: "Import",
-		fun: function(){
-			openTextFilePrompt(function(txt){
-				try {
-					var txtJson = JSON.parse(txt);
-					restoreSystemPromptAndHistory(txtJson).then(() => {
-						pop.popUpClose();
-						showChatHistoryEditor();
-					}).catch((err) => {
-						showPopUp("Failed to load file. JSON data seems to be corrupted.");
-					});
-				}catch (err){
-					console.error("Failed to load file. Could not parse JSON data:", err);		//DEBUG
-					showPopUp("Failed to load file. Could not parse JSON data.");
-				}
-			}, function(err){
-				console.error("Failed to load file:", err);		//DEBUG
-				showPopUp("Failed to load file.");
-			});
-		},
-		closeAfterClick: false
-	},{
-		name: "Close",
-		closeAfterClick: true
-	}];
-	var pop = showPopUp(content, buttons, {
-		width: "512px"
-	});
-}
-function buildSystemPromptEditComponent(){
-	var content = document.createElement("div");
-	content.className = "section-wrapper";
-	var info = document.createElement("p");
-	info.textContent = "Here you can add/edit your system prompt:";
-	var textC = document.createElement("div");
-	textC.className = "text-container";
-	var txt = document.createElement("textarea");
-	if (!systemPromptEle.value || systemPromptEle.value == "custom"){
-		txt.placeholder = ("Enter your prompt here.");
-	}else{
-		txt.placeholder = ("Currently selected preset:\n" + systemPromptEle.value);
-	}
-	content.appendChild(info);
-	content.appendChild(textC);
-	textC.appendChild(txt);
-	content.getSystemPrompt = function(){
-		return txt.value;
-	};
-	content.setSystemPrompt = function(newVal){
-		txt.value = newVal;
-	};
-	return content;
-}
-function buildChatHistoryListComponent(){
-	var content = document.createElement("div");
-	content.className = "section-wrapper";
-	var info = document.createElement("p");
-	info.textContent = "Here you can edit your chat history:";
-	var list = document.createElement("div");
-	list.className = "list-container";
-	content.appendChild(list);
-	var slotHistory = getHistory(activeSlotId);
-	if (!slotHistory?.length){
-		list.innerHTML = "<p style='text-align: center;'>- no history yet -</p>";
-		return content;
-	}
-	slotHistory.filter((itm) => { return itm.role != "removed" }).forEach(function(entry, i){
-		var item = document.createElement("div");
-		item.className = "list-item history-entry";
-		var wrap = document.createElement("div");
-		wrap.className = "entry-wrapper";
-		var header = document.createElement("div");
-		header.className = "entry-header";
-		var role = document.createElement("span");
-		if (entry.role == "user") role.className = "role-user";
-		else if (entry.role == "assistant") role.className = "role-assistant";
-		role.textContent = entry.role;
-		var timestamp = document.createElement("span");
-		timestamp.className = "chat-hist-time";
-		timestamp.textContent = new Date(entry.timestamp || Date.now()).toLocaleString();
-		header.appendChild(role);
-		header.appendChild(timestamp);
-		var previewTxt = document.createElement("div");
-		previewTxt.className = "list-item-desc";
-		previewTxt.setAttribute("tabindex", "0");
-		previewTxt.addEventListener("click", function(){
-			var pop = showTextEditor(entry.content, {
-				intro: "Here you can edit your history:",
-				placeholder: "Your chat history",
-				width: "512px"
-			}, function(newTxt){
-				entry.content = newTxt;
-				prevTxtSpan.textContent = newTxt;
-			});
-		});
-		var prevTxtSpan = document.createElement("span");
-		prevTxtSpan.textContent = entry.content;
-		previewTxt.appendChild(prevTxtSpan);
-		wrap.appendChild(header);
-		wrap.appendChild(previewTxt);
-		var removeBtn = document.createElement("button");
-		removeBtn.innerHTML = '<svg viewBox="0 0 16 16" style="width: 14px; fill: currentColor;"><use xlink:href="#svg-minus-btn"></use></svg>';
-		removeBtn.addEventListener("click", function(){
-			entry.role = "removed";
-			entry.content = "";
-			item.remove();
-		});
-		item.appendChild(wrap);
-		item.appendChild(removeBtn);
-		list.appendChild(item);
-	});
-	return content;
-}
-
 //------- API interface ---------
-
-var activeModel = "";
-var activeTemplate = undefined;
-var activeSystemPrompt = "";
-var customSystemPrompt = "";
-var activeSystemPromptInfo = {};
-var activeSlotId = -1;
-
-var chatHistory = {};	//NOTE: separate histories for each slotId
-var maxHistory = -1;	//-1 = whatever the model/server can handle
-var cachePromptsOnServer = true;
-var expectSepiaJson = true;
-
-//add to history
-function addToHistory(slotId, role, content){
-	//roles: user, assistant
-	if (!chatHistory[slotId]) chatHistory[slotId] = [];
-	if (maxHistory === 0) return;
-	chatHistory[slotId].push({
-		role: role,
-		content: content,
-		timestamp: Date.now()
-	});
-	//remove first element?
-	if (maxHistory > -1 && chatHistory.length > maxHistory){
-		chatHistory.shift();
-	}
-}
-function getHistory(slotId){
-	return chatHistory[slotId].filter((itm) => { return itm.role != "removed" }) || [];
-}
-function updateHistory(slotId, newHist){
-	chatHistory[slotId] = newHist;
-}
 
 //format prompt before sending
 function formatPrompt(slotId, textIn, template, sysPrompt){
 	var formText = buildSystemPrompt(template, sysPrompt);
 	formText += buildPromptHistory(slotId, template);
-	formText += template.user.replace("{{CONTENT}}", textIn);
+	//formText += template.user.replace("{{CONTENT}}", textIn);		//NOTE: we've already added this to the history
 	if (template.endOfPromptToken){
 		formText += template.endOfPromptToken;
 	}
@@ -753,7 +613,7 @@ function buildSystemPrompt(template, sysPrompt){
 	return (template.system?.replace("{{INSTRUCTION}}", sysPrompt) || "");
 }
 function buildPromptHistory(slotId, template){
-	var hist = getHistory(slotId);
+	var hist = chat.history.get(slotId);
 	var histStr = "";
 	hist.forEach(entry => {
 		var tempRole = template[entry.role];
@@ -769,7 +629,7 @@ async function chatCompletion(slotId, textIn, template){
 		return "";
 	}
 	var endpointUrl = API_URL + "completion";
-	var doStream = streamResultEle.checked;
+	var doStream = llm.settings.getStreamResultsEnabled();
 	var chatEle = createNewChatAnswer();
 	chatEle.attach();
 	chatEle.showLoader();
@@ -780,24 +640,26 @@ async function chatCompletion(slotId, textIn, template){
 		chatEle.setFooterText("Please wait ...");
 	};
 	try {
+		var reqBody = {
+			id_slot: slotId,
+			stream: doStream,
+			prompt: formatPrompt(slotId, textIn, template, llm.settings.getActiveSystemPrompt()),
+			cache_prompt: llm.settings.getPromptCachingOnServer(),
+			stop: template.stopSignals || chatTemplateStopSignalsAll,
+			t_max_predict_ms: 30000			//TODO: we stop predicting after 30s. Track this timer!
+			/*
+			n_predict: 64,
+			temperature: 0.3,
+			top_k: 40,
+			top_p: 0.9,
+			n_keep: n_keep,
+			grammar
+			*/
+		};
+		//TODO: add specific model settings
 		var response = await fetch(endpointUrl, {
 			method: 'POST',
-			body: JSON.stringify({
-				id_slot: slotId,
-				stream: doStream,
-				prompt: formatPrompt(slotId, textIn, template, activeSystemPrompt),
-				cache_prompt: cachePromptsOnServer,
-				stop: template.stopSignals || chatTemplateStopSignalsAll,
-				t_max_predict_ms: 30000			//TODO: we stop predicting after 30s. Track this timer!
-				/*
-				n_predict: 64,
-				temperature: 0.2,
-				top_k: 40,
-				top_p: 0.9,
-				n_keep: n_keep,
-				grammar
-				*/
-			})
+			body: JSON.stringify(reqBody)
 			//signal: completionAbortCtrl.signal	
 			//NOTE: we ignore the signal here for now and apply it to the streaming only, since we cannot trigger the abort on the server itself in non-streaming mode
 		});
@@ -822,7 +684,7 @@ async function chatCompletion(slotId, textIn, template){
     }
 	//console.log("response", response);		//DEBUG
 	try {
-		var answer = await processStreamData(response, doStream, slotId, chatEle, completionAbortCtrl);
+		var answer = await processStreamData(response, doStream, chatEle, completionAbortCtrl);
 		answer = postProcessAnswerAndShow(answer, slotId, chatEle);
 		chatEle.hideLoader();
 	}catch(err){
@@ -840,7 +702,7 @@ async function chatCompletion(slotId, textIn, template){
 }
 function chatCompletionSystemPromptOnly(slotId, template, newPrompt){
 	var endpointUrl = API_URL + "completion";
-	var sysPrompt = (newPrompt != undefined)? newPrompt : activeSystemPrompt;
+	var sysPrompt = (newPrompt != undefined)? newPrompt : llm.settings.getActiveSystemPrompt();
 	return fetch(endpointUrl, {
 		method: 'POST',
 		keepalive: true,		//NOTE: make sure this completes when the user closes the window
@@ -868,12 +730,12 @@ function getServerSlots(softFail){
 	return callLlmServerFunction(endpointUrl, "GET", undefined, "FailedToLoadLlmServerSlots", softFail);
 }
 async function getFreeServerSlot(numberOfSlots){
-	if (numberOfSlots == 0) return;
+	if (numberOfSlots == 0) return -1;
 	var freeSlotId;
 	var serverSlots = await getServerSlots(true);
 	if (serverSlots?.error){
-		console.error("Unable to load LLM server slot info.", err);
-		return;
+		console.error("Unable to load LLM server slot info.", serverSlots.error);
+		return -1;
 	}else{
 		//use data to find free slot
 		for (const slot of serverSlots){
@@ -891,6 +753,7 @@ function freeServerSlot(slotId){
 	//TODO: not working? we just overwrite then
 	//var endpointUrl = API_URL + "slots/" + encodeURIComponent(slotId) + "?action=erase";
 	//return callLlmServerFunction(endpointUrl, "POST", undefined, "FailedToLoadLlmServerSlots", true);
+	var activeTemplate = llm.settings.getChatTemplate();
 	return chatCompletionSystemPromptOnly(slotId, {system: "{{INSTRUCTION}}", stopSignals: activeTemplate?.stopSignals}, "")
 	.then((response) => {
 		return response.json();
@@ -937,7 +800,7 @@ function callLlmServerFunction(endpointUrl, method, bodyJson, failErrorName, sof
 	});
 }
 
-async function processStreamData(response, isStream, expectedSlotId, chatEle, completionAbortCtrl){
+async function processStreamData(response, isStream, chatEle, completionAbortCtrl){
     let answer = "";
 	if (isStream){
 		//read stream chunk by chunk
@@ -972,7 +835,7 @@ async function processStreamData(response, isStream, expectedSlotId, chatEle, co
 					//parse everything up till rest
 					for (const l of lines){
 						var message = parseDataString(l);
-						let res = handleParsedMessage(message, expectedSlotId, answer, chatEle);
+						let res = handleParsedMessage(message, answer, chatEle);
 						if (res.answer){
 							answer = res.answer;
 						}
@@ -985,7 +848,7 @@ async function processStreamData(response, isStream, expectedSlotId, chatEle, co
 				if (isLast && textBuffer){
 					var message = parseDataString(textBuffer);
 					console.log("message JSON:", message);		//DEBUG
-					let res = handleParsedMessage(message, expectedSlotId, answer, chatEle);
+					let res = handleParsedMessage(message, answer, chatEle);
 					if (res.answer){
 						answer = res.answer;
 					}
@@ -1018,7 +881,7 @@ async function processStreamData(response, isStream, expectedSlotId, chatEle, co
 			chatEle.setFooterText("CANCELED");
 		}else{
 			console.log("message JSON:", message);		//DEBUG
-			let res = handleParsedMessage(message, expectedSlotId, answer, chatEle);
+			let res = handleParsedMessage(message, answer, chatEle);
 			if (res.reachedLimit){
 				//TODO: handle
 			}
@@ -1034,20 +897,17 @@ function ignoreFinalMessage(message){
 	}
 	return "";
 }
-function handleParsedMessage(message, expectedSlotId, answer, chatEle){
+function handleParsedMessage(message, answer, chatEle){
 	if (message.timings){
 		console.log("time to process prompt (ms):", message.timings?.prompt_ms);		//DEBUG
 		console.log("time to generate answer (ms):", message.timings?.predicted_ms);	//DEBUG
 	}
 	let slotId = message.id_slot;
-	if (slotId != expectedSlotId){
-		if (expectedSlotId == -1){
-			activeSlotId = expectedSlotId;		//TODO: in this case we need to manage the input history
-		}else{
-			console.error("Wrong slot ID - Expected: " + expectedSlotId, "saw:", slotId);	//DEBUG
-			chatEle.setFooterText("SERVER SLOT ISSUE");
-			return {break: true};
-		}
+	let expectedSlotId = llm.settings.getActiveServerSlot();
+	if (slotId != expectedSlotId && expectedSlotId != -1){
+		console.error("Wrong slot ID - Expected: " + expectedSlotId, "saw:", slotId);	//DEBUG
+		chatEle.setFooterText("SERVER SLOT ISSUE");
+		return {break: true};
 	}
 	answer += message.content;
 	chatEle.setText(answer);
@@ -1076,6 +936,7 @@ function postProcessAnswerAndShow(answer, slotId, chatEle){
 		//process all answers if there was more than one and the LLM got confused
 		ans = ans.trim();
 		var ansJson;
+		var expectSepiaJson = llm.settings.getSepiaJsonFormat();
 		if (expectSepiaJson){
 			//try to clean up in advance (Gemma-2 2B has some issues here for example)
 			ans = ans.replace(/^(```json)/, "").replace(/^[\n]/, "");
@@ -1085,7 +946,7 @@ function postProcessAnswerAndShow(answer, slotId, chatEle){
 			try {
 				//TODO: this can fail for example if quotes where used inside the JSON message (not escaped \")
 				ansJson = JSON.parse(ans);
-				addToHistory(slotId, "assistant", JSON.stringify(ansJson));
+				chat.history.add(slotId, "assistant", JSON.stringify(ansJson));
 			}catch(err){
 				console.error("Failed to handle answer while trying to parse:", ans);		//DEBUG
 				ansJson = {"error": "Failed to handle answer while trying to parse JSON"};
@@ -1093,9 +954,9 @@ function postProcessAnswerAndShow(answer, slotId, chatEle){
 		}else{
 			ansJson = {command: "chat", message: ans};	//NOTE: this will recover text if SEPIA JSON was expected but LLM decided to ignore it
 			if (expectSepiaJson){
-				addToHistory(slotId, "assistant", JSON.stringify(ansJson));
+				chat.history.add(slotId, "assistant", JSON.stringify(ansJson));
 			}else{
-				addToHistory(slotId, "assistant", ans);
+				chat.history.add(slotId, "assistant", ans);
 			}
 		}
 		if (ansJson.command == "chat"){
@@ -1106,189 +967,25 @@ function postProcessAnswerAndShow(answer, slotId, chatEle){
 	});
 }
 
-//----- chat templates and system prompts ------
-
-const chatTemplates = [{
-	name: "LLaMA_3.1_8B_Instruct",
-	llmInfo: {
-		infoPrompt: "Your LLM is called LLaMA 3.1 with 8B parameters and works offline, on device, is open and may be used commercially under certain conditions. LLaMA has been trained by the company Meta, but your training data is somewhat of a mystery."
-	},
-	system: "<|start_header_id|>system<|end_header_id|>{{INSTRUCTION}}<|eot_id|>",
-	user: "<|start_header_id|>user<|end_header_id|>{{CONTENT}}<|eot_id|>",
-	assistant: "<|start_header_id|>assistant<|end_header_id|>{{CONTENT}}<|eot_id|>",
-	endOfPromptToken: "assistant",
-	stopSignals: ["<|eot_id|>"]
-},{
-	name: "Mistral-7B-Instruct",
-	llmInfo: {
-		infoPrompt: "Your LLM is called Mistral-7B and works offline, on device, is open and may be used commercially under certain conditions. Mistral-7B has been trained by the company Mistral AI, but your training data is somewhat of a mystery."
-	},
-	system: "[INST] {{INSTRUCTION}} [/INST] </s>",		//NOTE: we omit the BOS token <s> here since the LLM server adds it
-	user: "<s>[INST] {{CONTENT}} [/INST]",
-	assistant: "{{CONTENT}}</s>",
-	endOfPromptToken: "",
-	stopSignals: ["</s>"]
-},{
-	name: "Gemma-2-it",
-	llmInfo: {
-		infoPrompt: "Your LLM is called Gemma 2 and works offline, on device, is open and may be used commercially under certain conditions. Gemma 2 has been trained by Google, but your training data is somewhat of a mystery."
-	},
-	system: "<start_of_turn>user\n\n{{INSTRUCTION}}\n\n <end_of_turn>",
-	user: "<start_of_turn>user\n\n{{CONTENT}}<end_of_turn>",
-	assistant: "<start_of_turn>model\n\n{{CONTENT}}<end_of_turn>",
-	endOfPromptToken: "<start_of_turn>model",
-	stopSignals: ["<end_of_turn>"]
-},{
-	name: "Phi-3-instruct",
-	llmInfo: {
-		infoPrompt: "Your LLM is called Phi 3, works offline, on device, is open and may be used commercially under certain conditions. Phi 3 has been trained by Microsoft, but your training data is somewhat of a mystery."
-	},
-	system: "<|system|>\n{{INSTRUCTION}}<|end|>\n",
-	user: "<|user|>\n{{CONTENT}}<|end|>\n",
-	assistant: "<|assistant|>\n{{CONTENT}}<|end|>\n",
-	endOfPromptToken: "<|assistant|>\n",
-	stopSignals: ["</s>", "<|end|>"]
-},{
-	name: "OLMo_7B_Instruct",
-	llmInfo: {
-		infoPrompt: "Your LLM is called OLMo, has 7B parameters, works offline, on device, is open and may be used commercially under certain conditions. OLMo is trained in a very transparent way by the Allen Institute for AI with open data."
-	},
-	system: "<|system|>\n\n{{INSTRUCTION}}<|endoftext|>",
-	user: "<|user|>\n\n{{CONTENT}}<|endoftext|>",
-	assistant: "<|assistant|>\n\n{{CONTENT}}<|endoftext|>",
-	endOfPromptToken: "<|assistant|>",
-	stopSignals: ["</s>", "<|endoftext|>"]
-},{
-	name: "TinyLlama_1.1B_Chat",
-	llmInfo: {
-		infoPrompt: "Your LLM is called TinyLlama, has 1.1B parameters, works offline, on device, is open and may be used commercially under certain conditions. More information about TinyLlama can be found on its GitHub project page."
-	},
-	system: "<|system|>\n\n{{INSTRUCTION}}<|endoftext|>",
-	user: "<|user|>\n\n{{CONTENT}}<|endoftext|>",
-	assistant: "<|assistant|>\n\n{{CONTENT}}<|endoftext|>",
-	endOfPromptToken: "<|assistant|>",
-	stopSignals: ["</s>", "<|endoftext|>"]
-}];
-var chatTemplateStopSignalsAll = ["</s>", "<|end|>", "<|eot_id|>", "<|end_of_text|>", "<|im_end|>", "<|EOT|>", "<|END_OF_TURN_TOKEN|>", "<|end_of_turn|>", "<|endoftext|>", "assistant", "user"];
-
-//add templates to selector
-chatTemplates.forEach((tmpl) => {
-	var opt = document.createElement("option");
-	opt.textContent = tmpl.name;
-	opt.value = tmpl.name;
-	chatTemplateEle.appendChild(opt);
-});
-
-const systemPrompts = [{
-	name: "SEPIA Chat",
-	promptText: "You are a voice assistant, your name is SEPIA. You have been created to answer general knowledge questions and have a nice and friendly conversation. Your answers are short and precise, but can be funny sometimes.",
-	welcomeMessage: "Hello, my name is SEPIA. I'm here to answer your questions and have a friendly conversation :-)",
-	expectSepiaJson: false
-},{
-	name: "SEPIA Smart Home Control",
-	file: "SEPIA_smart_home_control.txt",
-	welcomeMessage: "Hello, my name is SEPIA. I'm here to control your smart home, answer your questions and have a friendly conversation :-)\nWhen I recognize a smart home request, I will show the JSON command in the chat for demonstration purposes, instead of a chat message.",
-	expectSepiaJson: true,
-	promptVariables: [{key: "infoPrompt", name: "{{LLM_INFO_PROMPT}}"}]
-},{
-	name: "Custom System Prompt",
-	value: "custom",
-	promptText: "",
-	welcomeMessage: "Hello World.",
-	expectSepiaJson: false,
-	promptVariables: []
-}];
-
-//add prompts to selector
-systemPrompts.forEach((sp, index) => {
-	var opt = document.createElement("option");
-	opt.textContent = sp.name;
-	opt.value = (sp.value != undefined)? sp.value : sp.name;
-	if (index == 0) opt.selected = true;
-	systemPromptEle.appendChild(opt);
-});
-//load prompts via selector
-systemPromptEle.addEventListener("change", function(){
-	loadSystemPrompt(systemPromptEle.value).catch((err) => {
-		if (err.name == "FailedToLoadSystemPrompt"){
-			console.error("Failed to load system prompt.", err);
-			showPopUp("ERROR: " + (err?.message || "Failed to load system prompt."));
-		}else{
-			console.error("Failed to load system prompt file.", err);
-			showPopUp("ERROR: " + (err?.message || "Failed to load system prompt file."));
-		}
-		//TODO: reset properly
-		systemPromptEle.value = systemPromptEle.options[1].value;
-	});
-});
-//prompt loader
-function loadSystemPrompt(name){
-	return new Promise((resolve, reject) => {
-		var sysPromptInfo = systemPrompts.find((sp) => sp.value == name || sp.name == name);
-		activeSystemPromptInfo = sysPromptInfo;
-		if (name == undefined || name == "custom"){
-			if (!customSystemPrompt){
-				reject({
-					name: "FailedToLoadSystemPrompt",
-					message: "Failed to load custom system prompt. Please define via settings."
-				});
-			}else{
-				activeSystemPrompt = customSystemPrompt;
-				expectSepiaJsonEle.checked = false;
-				resolve(activeSystemPrompt);
-			}
-		}else if (sysPromptInfo.file){
-			var loadMsg = showPopUp("Loading system prompt file...");
-			loadFile("system-prompts/" + sysPromptInfo.file, "text").then((sp) => {
-				//apply text from file
-				activeSystemPrompt = applySystemPromptVariables(sp, sysPromptInfo.promptVariables);
-				expectSepiaJsonEle.checked = sysPromptInfo.expectSepiaJson;
-				loadMsg.popUpClose();
-				resolve(activeSystemPrompt);
-			}).catch((err) => {
-				//failed to load file
-				activeSystemPrompt = "";
-				expectSepiaJsonEle.checked = false;
-				console.error("Failed to load system prompt file:", sysPromptInfo.file, err);
-				loadMsg.popUpClose();
-				reject({
-					name: "FailedToLoadPromptFile",
-					message: "Failed to load system prompt file.",
-					cause: err
-				});
-			});
-		}else if (sysPromptInfo.promptText){
-			//apply text directly
-			activeSystemPrompt = applySystemPromptVariables(sysPromptInfo.promptText, sysPromptInfo.promptVariables);
-			expectSepiaJsonEle.checked = sysPromptInfo.expectSepiaJson;
-			resolve(activeSystemPrompt);
-		}else{
-			activeSystemPrompt = "";
-			expectSepiaJsonEle.checked = false;
-			resolve(activeSystemPrompt);
-		}
-	});
-}
-function applySystemPromptVariables(sysPrompt, promptVariables){
-	//apply system prompt variables
-	var selectedTemplate = chatTemplates.find(t => t.name == chatTemplateEle.value);
-	if (promptVariables){
-		if (!selectedTemplate || !selectedTemplate.llmInfo){
-			console.error("Failed to apply system prompt variables due to missing template or template 'llmInfo'.");
-			return sysPrompt;
-		}
-		promptVariables.forEach(function(pv){
-			var llmInfoVal = selectedTemplate.llmInfo[pv.key];
-			if (llmInfoVal == undefined){
-				console.error("Active template is missing LLM info for sys. prompt variable '" + pv.key + "'.");
-			}else{
-				sysPrompt = sysPrompt.replaceAll(pv.name, llmInfoVal);
-			}
-		});
-	}
-	console.log("System prompt:", sysPrompt);		//DEBUG
-	return sysPrompt;
-}
+//export for UI
+window.toggleNavMenu = toggleNavMenu;
+window.toggleOptionsMenu = toggleOptionsMenu;
+window.createNewChat = createNewChat;
+window.editChatHistory = editChatHistory;
+window.closeChat = closeChat;
+window.startChat = startChat;
+window.isChatClosed = function(){ return chatIsClosed; };
 
 //initialize
+ui.components.setup({
+	isChatClosed: function(){ return chatIsClosed; },
+	clearChatMessages: clearChatMessages
+});
+chat.history.setup({
+	clearChatMessages: clearChatMessages,
+	restoreChatMessages: restoreChatMessages
+});
+llm.settings.setup(optionsMenu, {		//NOTE: optionsMenu is defined in common.js
+	showSystemPromptEditor: ui.components.showSystemPromptEditor
+});
 onPageReady();
