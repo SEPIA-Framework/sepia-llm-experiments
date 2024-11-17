@@ -105,7 +105,7 @@ export function setSepiaJsonFormat(trueFalse){
 
 //server slots
 export function setNumberOfServerSlots(totalSlots){
-	if (!totalSlots || totalSlots === 1){
+	if (!totalSlots){
 		//disable slot ID if none or only 1 is available
 		chatSlotIdEle.value = 0;
 		chatSlotIdEle.max = 0;
@@ -213,6 +213,10 @@ const chatTemplates = [{
 	stopSignals: ["</s>", "<|endoftext|>"]
 }];
 var chatTemplateStopSignalsAll = ["</s>", "<|end|>", "<|eot_id|>", "<|end_of_text|>", "<|im_end|>", "<|EOT|>", "<|END_OF_TURN_TOKEN|>", "<|end_of_turn|>", "<|endoftext|>", "assistant", "user"];
+
+export function getAllChatStopSignals(){
+	return chatTemplateStopSignalsAll;
+}
 
 //available system prompts
 const systemPrompts = [{

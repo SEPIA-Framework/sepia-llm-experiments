@@ -1,3 +1,9 @@
+import * as llmSettings from "./llm.settings.js"
+
+var llm = {
+	settings: llmSettings
+}
+
 var chatHistory = {};	//NOTE: separate histories for each slotId
 var numberOfHistoryMsgToRestoreInChat = 4;
 var chatHistoryTemp = undefined;
