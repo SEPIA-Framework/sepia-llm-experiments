@@ -31,7 +31,7 @@ function buildSystemPrompt(template, sysPrompt){
 	return (template.system?.replace("{{INSTRUCTION}}", sysPrompt) || "");
 }
 function buildPromptHistory(slotId, template){
-	var hist = chat.history.get(slotId);
+	var hist = chat.history.get(slotId);	//NOTE: alternatively we could use 'getActiveHistory'
 	var histStr = "";
 	hist.forEach(entry => {
 		var tempRole = template[entry.role];

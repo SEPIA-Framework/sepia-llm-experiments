@@ -615,9 +615,11 @@ window.isChatClosed = function(){ return chatIsClosed; };
 //initialize
 ui.components.setup({
 	isChatClosed: function(){ return chatIsClosed; },
-	clearChatMessages: clearChatMessages
+	clearChatMessages: clearChatMessages,
+	restoreChatMessages: restoreChatMessages
 });
 chat.history.setup({
+	isChatClosed: function(){ return chatIsClosed; },
 	clearChatMessages: clearChatMessages,
 	restoreChatMessages: restoreChatMessages
 });

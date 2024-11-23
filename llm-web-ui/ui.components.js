@@ -16,7 +16,7 @@ export function setup(chatUiHandl){
 }
 
 export function showSystemPromptEditor(){
-	var content = buildSystemPromptEditComponent();
+	var content = buildSystemPromptEditComponent("50vh");
 	var sysPromptInfo = llm.settings.getSystemPromptInfo();
 	var customSystemPrompt = llm.settings.getCustomSystemPrompt();
 	if ((!sysPromptInfo || sysPromptInfo.value == "custom") && customSystemPrompt){
@@ -43,10 +43,20 @@ export function showSystemPromptEditor(){
 				showPopUp("Failed to load file.");
 			});
 		}
-	},{
+	}];
+	if (chat.history.getActiveHistory()){
+		buttons.push({
+			name: "Edit history",
+			fun: function(){
+				showChatHistoryEditor();
+			},
+			closeAfterClick: true
+		});
+	}
+	buttons.push({
 		name: "Close",
 		closeAfterClick: true
-	}];
+	});
 	addDragAndDropFileImport(content, function(txt){
 		importText(txt);
 	}, function(err){
@@ -56,7 +66,7 @@ export function showSystemPromptEditor(){
 		fileType: "text/plain"
 	});
 	var pop = showPopUp(content, buttons, {
-		width: "512px"
+		width: "800px"
 	});
 	var importText = function(txt){
 		try {
@@ -117,7 +127,7 @@ export function showChatHistoryEditor(){
 		fileType: "text/plain"
 	});
 	var pop = showPopUp(content, buttons, {
-		width: "512px"
+		width: "800px"
 	});
 	var importText = function(txt){
 		try {
@@ -135,7 +145,7 @@ export function showChatHistoryEditor(){
 		}
 	}
 }
-function buildSystemPromptEditComponent(){
+function buildSystemPromptEditComponent(txtareaHeight){
 	var content = document.createElement("div");
 	content.className = "section-wrapper";
 	var info = document.createElement("p");
@@ -143,6 +153,9 @@ function buildSystemPromptEditComponent(){
 	var textC = document.createElement("div");
 	textC.className = "text-container";
 	var txt = document.createElement("textarea");
+	if (txtareaHeight){
+		txt.style.height = (typeof txtareaHeight == "number")? (txtareaHeight + "px") : txtareaHeight;
+	}
 	var sysPromptInfo = llm.settings.getSystemPromptInfo();
 	if (!sysPromptInfo || sysPromptInfo.value == "custom"){
 		txt.placeholder = ("Enter your prompt here.");
@@ -168,7 +181,7 @@ function buildChatHistoryListComponent(){
 	var list = document.createElement("div");
 	list.className = "list-container";
 	content.appendChild(list);
-	var slotHistory = chat.history.get(llm.settings.getActiveServerSlot());
+	var slotHistory = chat.history.getActiveHistory();
 	if (!slotHistory?.length){
 		list.innerHTML = "<p style='text-align: center;'>- no history yet -</p>";
 		return content;
@@ -183,7 +196,8 @@ function buildChatHistoryListComponent(){
 		var role = document.createElement("span");
 		if (entry.role == "user") role.className = "role-user";
 		else if (entry.role == "assistant") role.className = "role-assistant";
-		role.textContent = entry.role;
+		var entryIndex = (i+1);
+		role.textContent = entryIndex + ". " + entry.role;
 		var timestamp = document.createElement("span");
 		timestamp.className = "chat-hist-time";
 		timestamp.textContent = new Date(entry.timestamp || Date.now()).toLocaleString();
@@ -194,9 +208,9 @@ function buildChatHistoryListComponent(){
 		previewTxt.setAttribute("tabindex", "0");
 		previewTxt.addEventListener("click", function(){
 			var pop = showTextEditor(entry.content, {
-				intro: "Here you can edit your history:",
+				intro: "Edit history at index " + entryIndex + ":",
 				placeholder: "Your chat history",
-				width: "512px"
+				width: "800px"
 			}, function(newTxt){
 				entry.content = newTxt;
 				prevTxtSpan.textContent = newTxt;
@@ -226,7 +240,7 @@ function exportSystemPromptAndHistory(){
 	return {
 		systemPromptSelected: sysPromptInfo.value,
 		systemPrompt: ((sysPromptInfo.value == "custom")? llm.settings.getCustomSystemPrompt() : ""),
-		history: chat.history.get(llm.settings.getActiveServerSlot())
+		history: chat.history.getActiveHistory()
 	}
 }
 function restoreSystemPromptAndHistory(data){

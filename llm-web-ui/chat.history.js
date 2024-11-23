@@ -6,7 +6,7 @@ var llm = {
 
 var chatHistory = {};	//NOTE: separate histories for each slotId
 var numberOfHistoryMsgToRestoreInChat = 4;
-var chatHistoryTemp = undefined;
+var chatHistoryTemp = undefined;	//NOTE: this is used if we have no slot ID yet
 
 //handlers to check and manipulate main UI
 var chatUiHandlers;
@@ -39,6 +39,19 @@ export function add(slotId, role, content){
 export function get(slotId){
 	return chatHistory[slotId]?.filter((itm) => { return itm.role != "removed" }) || [];
 }
+export function getActiveHistory(){
+	//check if chat is closed and return either cached or slot history
+	if (chatUiHandlers.isChatClosed()){
+		return getCachedHistory();
+	}else{
+		var activeSlot = llm.settings.getActiveServerSlot();
+		if (activeSlot > -1){
+			return get(activeSlot);
+		}else{
+			return undefined;
+		}
+	}
+}
 export function update(slotId, newHist){
 	chatHistory[slotId] = newHist;
 }
@@ -66,6 +79,9 @@ export function restore(hist){
 
 export function cacheHistoryForRestore(hist){
 	chatHistoryTemp = hist;
+}
+export function getCachedHistory(hist){
+	return chatHistoryTemp;
 }
 export function clearHistoryCache(){
 	chatHistoryTemp = undefined;
