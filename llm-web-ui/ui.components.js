@@ -1,11 +1,13 @@
 import * as chatHistory from "./chat.history.js"
 import * as llmSettings from "./llm.settings.js"
+import * as llmInterface from "./llm.interface.js"
 
 var chat = {
 	history: chatHistory
 }
 var llm = {
-	settings: llmSettings
+	settings: llmSettings,
+	interface: llmInterface
 }
 
 //handlers to check and manipulate main UI
@@ -53,6 +55,13 @@ export function showSystemPromptEditor(){
 			closeAfterClick: true
 		});
 	}
+	buttons.push({
+		name: "Count tokens",
+		fun: function(){
+			countTokensAndShowResult();
+		},
+		closeAfterClick: false
+	});
 	buttons.push({
 		name: "Close",
 		closeAfterClick: true
@@ -103,6 +112,12 @@ export function showChatHistoryEditor(){
 				console.error("Failed to load file:", err);		//DEBUG
 				showPopUp("Failed to load file.");
 			});
+		},
+		closeAfterClick: false
+	},{
+		name: "Count tokens",
+		fun: function(){
+			countTokensAndShowResult();
 		},
 		closeAfterClick: false
 	},{
@@ -233,6 +248,20 @@ function buildChatHistoryListComponent(){
 		list.appendChild(item);
 	});
 	return content;
+}
+
+function countTokensAndShowResult(){
+	llm.interface.getTokens().then((res) => {
+		if (res?.tokens){
+			showPopUp("Total tokens (system prompt + chat history): " + res.tokens.length, 
+				undefined, {width: "480px"});
+		}else{
+			showPopUp("Failed to count tokens, sorry. Tokenizer returned invalid data.");
+		}
+	}).catch((err) => {
+		console.error("Failed to count tokens:", err);		//DEBUG
+		showPopUp("Failed to count tokens, sorry. Please check server connection.");
+	});
 }
 
 function exportSystemPromptAndHistory(){

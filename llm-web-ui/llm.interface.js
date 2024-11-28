@@ -12,6 +12,10 @@ var API_URL;
 
 var chatMsgInterface;
 
+var T_MAX_PREDICT_MS = 90000;	//max time to do text-generation, measured since the first token. 0=infinite
+
+var serverPromptContextLength;	//prompt context configured on server
+
 export function setup(SERVER_API_URL, chatMsgInterf){
     API_URL = SERVER_API_URL;
     chatMsgInterface = chatMsgInterf;
@@ -19,6 +23,8 @@ export function setup(SERVER_API_URL, chatMsgInterf){
 
 //format prompt before sending
 function formatPrompt(slotId, textIn, template, sysPrompt){
+	if (template == undefined) template = llm.settings.getChatTemplate();
+	if (sysPrompt == undefined) sysPrompt = llm.settings.getActiveSystemPrompt();
 	var formText = buildSystemPrompt(template, sysPrompt);
 	formText += buildPromptHistory(slotId, template);
 	//formText += template.user.replace("{{CONTENT}}", textIn);		//NOTE: we've already added this to the history
@@ -27,13 +33,16 @@ function formatPrompt(slotId, textIn, template, sysPrompt){
 	}
 	return formText;
 }
-function buildSystemPrompt(template, sysPrompt){
+export function buildSystemPrompt(template, sysPrompt){
+	if (template == undefined) template = llm.settings.getChatTemplate();
+	if (sysPrompt == undefined) sysPrompt = llm.settings.getActiveSystemPrompt();
 	return (template.system?.replace("{{INSTRUCTION}}", sysPrompt) || "");
 }
-function buildPromptHistory(slotId, template){
-	var hist = chat.history.get(slotId);	//NOTE: alternatively we could use 'getActiveHistory'
+export function buildPromptHistory(slotId, template){
+	var hist = (slotId == undefined || slotId < 0)? chat.history.getActiveHistory() : chat.history.get(slotId);
+	if (template == undefined) template = llm.settings.getChatTemplate();
 	var histStr = "";
-	hist.forEach(entry => {
+	hist?.forEach(entry => {
 		var tempRole = template[entry.role];
 		if (tempRole && entry.content){
 			histStr += tempRole.replace("{{CONTENT}}", entry.content);
@@ -44,7 +53,7 @@ function buildPromptHistory(slotId, template){
 //send to '/completion' endpoint
 export async function chatCompletion(slotId, textIn, template){
 	if (!textIn || !textIn.trim()){
-		return "";
+		return "";		//TODO: currently 'textIn' isn't even used directy, but taken from history
 	}
 	var endpointUrl = API_URL + "completion";
 	var doStream = llm.settings.getStreamResultsEnabled();
@@ -64,14 +73,13 @@ export async function chatCompletion(slotId, textIn, template){
 			prompt: formatPrompt(slotId, textIn, template, llm.settings.getActiveSystemPrompt()),
 			cache_prompt: llm.settings.getPromptCachingOnServer(),
 			stop: template.stopSignals || llm.settings.getAllChatStopSignals(),
-			t_max_predict_ms: 30000			//TODO: we stop predicting after 30s. Track this timer!
+			//n_predict: 1024,						//NOTE: 0=just cache it, -1=infinite
+			t_max_predict_ms: T_MAX_PREDICT_MS		//TODO: we stop predicting after this. Track this timer!
 			/*
-			n_predict: 64,
-			temperature: 0.3,
+			temperature: 0.8,
 			top_k: 40,
-			top_p: 0.9,
-			n_keep: n_keep,
-			grammar
+			top_p: 0.95,
+			n_keep: 0
 			*/
 		};
 		//TODO: add specific model settings
@@ -121,17 +129,21 @@ export async function chatCompletion(slotId, textIn, template){
 export function chatCompletionSystemPromptOnly(slotId, template, newPrompt){
 	var endpointUrl = API_URL + "completion";
 	var sysPrompt = (newPrompt != undefined)? newPrompt : llm.settings.getActiveSystemPrompt();
+	var fullPrompt = buildSystemPrompt(template, sysPrompt);
+	var estimatedTokens = estimateTokens(fullPrompt);
+	var predictTime = T_MAX_PREDICT_MS;
+	//if (estimatedTokens > serverPromptContextLength)		//TODO: compare to server props
 	return fetch(endpointUrl, {
 		method: 'POST',
 		keepalive: true,		//NOTE: make sure this completes when the user closes the window
 		body: JSON.stringify({
 			id_slot: slotId,
 			stream: false,
-			prompt: buildSystemPrompt(template, sysPrompt),
+			prompt: fullPrompt,
 			cache_prompt: true,
 			stop: template.stopSignals || llm.settings.getAllChatStopSignals(),
-			t_max_predict_ms: 60000,			//TODO: we stop predicting after 30s. Track this timer!
-			n_predict: 2,
+			t_max_predict_ms: predictTime,			//TODO: we stop predicting after this. Track this timer!
+			n_predict: 0,
 		})
 	});
 }
@@ -142,10 +154,36 @@ export function abortChatCompletion(){
     abortCompletion();
 }
 
+//tokenize
+export function getTokens(promptAndOrHistory){
+	if (!promptAndOrHistory){
+		promptAndOrHistory = formatPrompt();	//NOTE: takes all defaults as prompt
+	}
+	//console.error("prompt:", promptAndOrHistory);		//DEBUG
+	console.log("Estimated tokens (simple split):", estimateTokens(promptAndOrHistory));		//DEBUG
+	var endpointUrl = API_URL + "tokenize";
+	var softFail = false;
+	return callLlmServerFunction(endpointUrl, "POST", {
+		content: promptAndOrHistory,
+		add_special: false,
+		with_pieces: false
+	}, "TokenizerError", softFail);
+}
+function estimateTokens(input){
+	return input?.split(/(?:\b|\s|\n)+/).length || 0;
+}
+
 //get data from '/props' endpoint
 export function getServerProps(softFail){
 	var endpointUrl = API_URL + "props";
-	return callLlmServerFunction(endpointUrl, "GET", undefined, "FailedToLoadLlmServerInfo", softFail);
+	return callLlmServerFunction(endpointUrl, "GET", undefined, "FailedToLoadLlmServerInfo", softFail)
+	.then((serverInfo) => {
+		console.log("Server info:", serverInfo);
+		if (serverInfo){
+			serverPromptContextLength = serverInfo["n_ctx"];
+		}
+		return serverInfo;
+	});
 }
 export function getServerSlots(softFail){
 	var endpointUrl = API_URL + "slots";
@@ -160,8 +198,10 @@ export async function getFreeServerSlot(numberOfSlots){
 		return -1;
 	}else{
 		//use data to find free slot
+		var bosToken = llm.settings.getChatTemplate()?.bosToken || "";
+		var knownBosTokens = llm.settings.getKnownBosTokens();
 		for (const slot of serverSlots){
-			let recentlyUsed = !!slot.prompt;
+			let recentlyUsed = (slot.prompt && slot.prompt != bosToken && !knownBosTokens.includes(slot.prompt));
 			let isProcessing = (slot.state == 1);
 			if (!isProcessing && !recentlyUsed){
 				freeSlotId = slot.id;
@@ -173,8 +213,10 @@ export async function getFreeServerSlot(numberOfSlots){
 }
 export function freeServerSlot(slotId){
 	//TODO: not working? we just overwrite then
-	//var endpointUrl = API_URL + "slots/" + encodeURIComponent(slotId) + "?action=erase";
-	//return callLlmServerFunction(endpointUrl, "POST", undefined, "FailedToLoadLlmServerSlots", true);
+	/*
+	var endpointUrl = API_URL + "slots/" + encodeURIComponent(slotId) + "?action=erase";
+	return callLlmServerFunction(endpointUrl, "POST", undefined, "FailedToLoadLlmServerSlots", true);
+	*/
 	var activeTemplate = llm.settings.getChatTemplate();
 	return chatCompletionSystemPromptOnly(slotId, {system: "{{INSTRUCTION}}", stopSignals: activeTemplate?.stopSignals}, "")
 	.then((response) => {
@@ -250,7 +292,7 @@ async function processStreamData(response, isStream, chatEle, completionAbortCtr
 			if (textBuffer){
 				var lines = textBuffer.split(/\n\s*\n/);
 				//console.log("lines:", lines);			//DEBUG
-				console.log("processing lines:", lines.length);			//DEBUG
+				//console.log("processing lines:", lines.length);			//DEBUG
 				if (lines.length > 1){
 					//take last row as rest buffer
 					textBuffer = lines.pop();
@@ -359,19 +401,24 @@ function postProcessAnswerAndShow(answer, slotId, chatEle){
 		ans = ans.trim();
 		var ansJson;
 		var expectSepiaJson = llm.settings.getSepiaJsonFormat();
+		//TODO: improve whole JSON parsing etc.
 		if (expectSepiaJson){
 			//try to clean up in advance (Gemma-2 2B has some issues here for example)
 			ans = ans.replace(/^(```json)/, "").replace(/^[\n]/, "");
 			ans = ans.replace(/(```)$/, "").replace(/[\n]$/, "");
 		}
-		if (ans.startsWith("{") && ans.endsWith("}")){
+		if (ans.startsWith('{"') && ans.endsWith('}')){
 			try {
-				//TODO: this can fail for example if quotes where used inside the JSON message (not escaped \")
+				//TODO: this can fail for example if quotes where used inside the JSON message (not escaped \") or if it wasn't meant to be JSON at all
 				ansJson = JSON.parse(ans);
 				chat.history.add(slotId, "assistant", JSON.stringify(ansJson));
 			}catch(err){
-				console.error("Failed to handle answer while trying to parse:", ans);		//DEBUG
-				ansJson = {"error": "Failed to handle answer while trying to parse JSON"};
+				if (expectSepiaJson){
+					console.error("Failed to handle answer while trying to parse:", ans);		//DEBUG
+					ansJson = {"error": "Failed to handle answer while trying to parse JSON"};
+				}else{
+					chat.history.add(slotId, "assistant", ans);
+				}
 			}
 		}else{
 			ansJson = {command: "chat", message: ans};	//NOTE: this will recover text if SEPIA JSON was expected but LLM decided to ignore it
@@ -381,10 +428,15 @@ function postProcessAnswerAndShow(answer, slotId, chatEle){
 				chat.history.add(slotId, "assistant", ans);
 			}
 		}
-		if (ansJson.command == "chat"){
-			chatEle.addText(ansJson.message);
+		if (ansJson?.command){
+			if (ansJson.command == "chat"){
+				chatEle.addText(ansJson.message);
+			}else{
+				//TODO: check ansJson.error and skip or break
+				chatEle.addCommand(ansJson);
+			}
 		}else{
-			chatEle.addCommand(ansJson);
+			chatEle.addText(ans);
 		}
 	});
 }
