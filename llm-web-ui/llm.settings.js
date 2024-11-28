@@ -63,13 +63,25 @@ export function getActiveModel(){
 	return chatTemplateEle.value || chatTemplates[0].name;
 }
 export function findBestModelMatch(modelName){
-	var baseModel = modelName.match(/(tiny|olmo)/i) || modelName.match(/(gemma|mistral|phi|llama)/i);	//TODO: add more/fix when templates grow
-	if (baseModel){
-		console.log("Server model family: " + baseModel[0]);
-		var possibleTemplateMatch = chatTemplates.find(t => t.name.toLowerCase().indexOf(baseModel[0].toLowerCase()) >= 0);
-		return possibleTemplateMatch;
+	var baseModel = modelName.match(/(tiny|olmo|dolphin)/i) || modelName.match(/(gemma|mistral|phi|llama)/i);	//TODO: add more/fix when templates grow
+	baseModel = baseModel? baseModel[0] : "";
+	var fallbackTemplate = "";
+	switch (baseModel) {
+		case "dolphin":
+			fallbackTemplate = "ChatML";
+			break;
+		default:
+			break;
 	}
-	return "";
+	var possibleTemplateMatch = "";
+	if (fallbackTemplate){
+		console.log("Server model family: " + baseModel + " - template: " + fallbackTemplate);
+		possibleTemplateMatch = chatTemplates.find(t => t.name.toLowerCase().indexOf(fallbackTemplate.toLowerCase()) >= 0);
+	}else if (baseModel){
+		console.log("Server model family: " + baseModel);
+		possibleTemplateMatch = chatTemplates.find(t => t.name.toLowerCase().indexOf(baseModel.toLowerCase()) >= 0);
+	}
+	return possibleTemplateMatch;
 }
 export function getChatTemplate(name){
 	if (name == undefined) name = getActiveModel();
@@ -157,7 +169,8 @@ const chatTemplates = [{
 	system: "<|start_header_id|>system<|end_header_id|>{{INSTRUCTION}}<|eot_id|>",
 	user: "<|start_header_id|>user<|end_header_id|>{{CONTENT}}<|eot_id|>",
 	assistant: "<|start_header_id|>assistant<|end_header_id|>{{CONTENT}}<|eot_id|>",
-	endOfPromptToken: "assistant",
+	bosToken: "<|begin_of_text|>",
+	endOfPromptToken: "<|start_header_id|>assistant<|end_header_id|>",
 	stopSignals: ["<|eot_id|>"]
 },{
 	name: "Mistral-7B-Instruct",
@@ -167,6 +180,7 @@ const chatTemplates = [{
 	system: "[INST] {{INSTRUCTION}} [/INST] </s>",		//NOTE: we omit the BOS token <s> here since the LLM server adds it
 	user: "<s>[INST] {{CONTENT}} [/INST]",
 	assistant: "{{CONTENT}}</s>",
+	bosToken: "<s>",
 	endOfPromptToken: "",
 	stopSignals: ["</s>"]
 },/*
@@ -179,7 +193,8 @@ const chatTemplates = [{
 	system: "<start_of_turn>user\n\n{{INSTRUCTION}}\n\n <end_of_turn>",
 	user: "<start_of_turn>user\n\n{{CONTENT}}<end_of_turn>",
 	assistant: "<start_of_turn>model\n\n{{CONTENT}}<end_of_turn>",
-	endOfPromptToken: "<start_of_turn>model",
+	bosToken: "<bos>",
+	endOfPromptToken: "<start_of_turn>model\n\n",
 	stopSignals: ["<end_of_turn>"]
 },{
 	name: "Phi-3-instruct",
@@ -189,6 +204,7 @@ const chatTemplates = [{
 	system: "<|system|>\n{{INSTRUCTION}}<|end|>\n",
 	user: "<|user|>\n{{CONTENT}}<|end|>\n",
 	assistant: "<|assistant|>\n{{CONTENT}}<|end|>\n",
+	bosToken: "<s>",
 	endOfPromptToken: "<|assistant|>\n",
 	stopSignals: ["</s>", "<|end|>"]
 },{
@@ -199,7 +215,8 @@ const chatTemplates = [{
 	system: "<|system|>\n\n{{INSTRUCTION}}<|endoftext|>",
 	user: "<|user|>\n\n{{CONTENT}}<|endoftext|>",
 	assistant: "<|assistant|>\n\n{{CONTENT}}<|endoftext|>",
-	endOfPromptToken: "<|assistant|>",
+	bosToken: "",
+	endOfPromptToken: "<|assistant|>\n\n",
 	stopSignals: ["</s>", "<|endoftext|>"]
 },{
 	name: "TinyLlama_1.1B_Chat",
@@ -209,13 +226,27 @@ const chatTemplates = [{
 	system: "<|system|>\n\n{{INSTRUCTION}}<|endoftext|>",
 	user: "<|user|>\n\n{{CONTENT}}<|endoftext|>",
 	assistant: "<|assistant|>\n\n{{CONTENT}}<|endoftext|>",
-	endOfPromptToken: "<|assistant|>",
+	bosToken: "<s>",
+	endOfPromptToken: "<|assistant|>\n\n",
 	stopSignals: ["</s>", "<|endoftext|>"]
+},{
+	name: "Generic_ChatML",
+	llmInfo: {},
+	system: "<|im_start|>system\n{{INSTRUCTION}}<|im_end|>",
+	user: "<|im_start|>user\n{{CONTENT}}<|im_end|>",
+	assistant: "<|im_start|>assistant\n{{CONTENT}}<|im_end|>",
+	bosToken: "",
+	endOfPromptToken: "<|im_start|>assistant\n",
+	stopSignals: ["<|im_end|>"]
 }];
 var chatTemplateStopSignalsAll = ["</s>", "<|end|>", "<|eot_id|>", "<|end_of_text|>", "<|im_end|>", "<|EOT|>", "<|END_OF_TURN_TOKEN|>", "<|end_of_turn|>", "<|endoftext|>", "assistant", "user"];
+var knownBosTokens = ["<|begin_of_text|>", "<s>", "<bos>"];
 
 export function getAllChatStopSignals(){
 	return chatTemplateStopSignalsAll;
+}
+export function getKnownBosTokens(){
+	return knownBosTokens;
 }
 
 //available system prompts
