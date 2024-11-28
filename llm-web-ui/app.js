@@ -63,7 +63,6 @@ var isPromptProcessing = false;
 function onPageReady(){
 	console.log("Welcome to the SEPIA LLM Web UI :-)");
 	llm.interface.getServerProps().then((serverInfo) => {
-		console.log("Server info:", serverInfo);
 		//make use of server info
 		if (serverInfo?.default_generation_settings?.model){
 			var model = serverInfo.default_generation_settings.model;
