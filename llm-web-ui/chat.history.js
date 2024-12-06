@@ -8,7 +8,7 @@ var chatHistory = {};	//NOTE: separate histories for each slotId
 var numberOfHistoryMsgToRestoreInChat = 4;
 var chatHistoryTemp = undefined;	//NOTE: this is used if we have no slot ID yet
 
-//handlers to check and manipulate main UI
+//handlers to check and manipulate main UI (see app.js)
 var chatUiHandlers;
 
 export function setup(chatUiHandl){
@@ -16,7 +16,13 @@ export function setup(chatUiHandl){
 }
 
 //clear all
-export function clearAll(){
+export function clearAll(keepInSessionCache){
+	if (keepInSessionCache){
+		var activeSlot = llm.settings.getActiveServerSlot();
+		if (activeSlot != undefined && activeSlot >= 0){
+			chatHistoryTemp = chatHistory[activeSlot];
+		}
+	}
 	chatHistory = {};
 }
 

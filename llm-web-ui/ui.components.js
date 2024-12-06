@@ -10,88 +10,96 @@ var llm = {
 	interface: llmInterface
 }
 
-//handlers to check and manipulate main UI
+//handlers to check and manipulate main UI (see app.js)
 var chatUiHandlers;
 
 export function setup(chatUiHandl){
 	chatUiHandlers = chatUiHandl;
 }
 
-export function showSystemPromptEditor(){
-	var content = buildSystemPromptEditComponent("50vh");
+export function showSystemPromptEditor(disableEdit){
+	var content = buildSystemPromptEditComponent("50vh", disableEdit);
 	var sysPromptInfo = llm.settings.getSystemPromptInfo();
 	var customSystemPrompt = llm.settings.getCustomSystemPrompt();
 	if ((!sysPromptInfo || sysPromptInfo.value == "custom") && customSystemPrompt){
 		content.setSystemPrompt(customSystemPrompt);
 	}
-	var buttons = [{
-		name: "Save",
-		fun: function(){
-			llm.settings.setSystemPromptInfo("custom");
-			llm.settings.setCustomSystemPrompt(content.getSystemPrompt());
-			llm.settings.loadSystemPrompt().catch((err) => {
-				console.error("Failed to load system prompt.", err);
-				showPopUp("ERROR: " + (err?.message || "Failed to load system prompt."));
-			});
-		},
-		closeAfterClick: true
-	},{
-		name: "Import",
-		fun: function(){
-			openTextFilePrompt(function(txt){
-				importText(txt);
-			}, function(err){
-				console.error("Failed to load file:", err);		//DEBUG
-				showPopUp("Failed to load file.");
-			});
-		}
-	}];
-	if (chat.history.getActiveHistory()){
-		buttons.push({
-			name: "Edit history",
+	var buttons;
+	if (disableEdit){
+		buttons = [{
+			name: "Go back",
+			closeAfterClick: true
+		}];
+	}else{
+		buttons = [{
+			name: "Save",
 			fun: function(){
-				showChatHistoryEditor();
+				llm.settings.setSystemPromptInfo("custom");
+				llm.settings.setCustomSystemPrompt(content.getSystemPrompt());
+				llm.settings.loadSystemPrompt().catch((err) => {
+					console.error("Failed to load system prompt.", err);
+					showPopUp("ERROR: " + (err?.message || "Failed to load system prompt."));
+				});
 			},
 			closeAfterClick: true
+		},{
+			name: "Import",
+			fun: function(){
+				openTextFilePrompt(function(txt){
+					importText(txt);
+				}, function(err){
+					console.error("Failed to load file:", err);		//DEBUG
+					showPopUp("Failed to load file.");
+				});
+			}
+		}];
+		if (chat.history.getActiveHistory()){
+			buttons.push({
+				name: "Edit history",
+				fun: function(){
+					showChatHistoryEditor();
+				},
+				closeAfterClick: true
+			});
+		}
+		buttons.push({
+			name: "Count tokens",
+			fun: function(){
+				countTokensAndShowResult();
+			},
+			closeAfterClick: false
 		});
+		buttons.push({
+			name: "Close",
+			closeAfterClick: true
+		});
+		addDragAndDropFileImport(content, function(txt){
+			importText(txt);
+		}, function(err){
+			console.error("Failed to load file:", err);		//DEBUG
+			showPopUp("Failed to load file.");
+		},{
+			fileType: "text/plain"
+		});
+		var importText = function(txt){
+			try {
+				var txtJson = JSON.parse(txt);
+				restoreSystemPromptAndHistory(txtJson).then(() => {
+					pop.popUpClose();
+					showSystemPromptEditor();
+				}).catch((err) => {
+					console.error("Failed to load file:", err);		//DEBUG
+					showPopUp("Failed to load file. JSON data seems to be corrupted.");
+				});
+			}catch (err){
+				console.error("Failed to load file. Could not parse JSON data:", err);		//DEBUG
+				showPopUp("Failed to load file. Could not parse JSON data.");
+			}
+		}
 	}
-	buttons.push({
-		name: "Count tokens",
-		fun: function(){
-			countTokensAndShowResult();
-		},
-		closeAfterClick: false
-	});
-	buttons.push({
-		name: "Close",
-		closeAfterClick: true
-	});
-	addDragAndDropFileImport(content, function(txt){
-		importText(txt);
-	}, function(err){
-		console.error("Failed to load file:", err);		//DEBUG
-		showPopUp("Failed to load file.");
-	},{
-		fileType: "text/plain"
-	});
 	var pop = showPopUp(content, buttons, {
 		width: "800px"
 	});
-	var importText = function(txt){
-		try {
-			var txtJson = JSON.parse(txt);
-			restoreSystemPromptAndHistory(txtJson).then(() => {
-				pop.popUpClose();
-				showSystemPromptEditor();
-			}).catch((err) => {
-				console.error("Failed to load file:", err);		//DEBUG
-				showPopUp("Failed to load file. JSON data seems to be corrupted.");
-			});
-		}catch (err){
-			console.error("Failed to load file. Could not parse JSON data:", err);		//DEBUG
-			showPopUp("Failed to load file. Could not parse JSON data.");
-		}
-	}
 }
 
 export function showChatHistoryEditor(){
@@ -124,11 +132,19 @@ export function showChatHistoryEditor(){
 		name: "Clear all",
 		fun: function(){
 			chat.history.update(llm.settings.getActiveServerSlot(), []);
+			chat.history.clearHistoryCache();
 			chatUiHandlers.clearChatMessages();
 			pop.popUpClose();
 			showChatHistoryEditor();
 		},
 		closeAfterClick: false
+	},{
+		name: "Show prompt",
+		fun: function(){
+			var disableEdit = !chatUiHandlers.isChatClosed();
+			showSystemPromptEditor(disableEdit);
+		},
+		closeAfterClick: chatUiHandlers.isChatClosed()
 	},{
 		name: "Close",
 		closeAfterClick: true
@@ -160,11 +176,15 @@ export function showChatHistoryEditor(){
 		}
 	}
 }
-function buildSystemPromptEditComponent(txtareaHeight){
+function buildSystemPromptEditComponent(txtareaHeight, disableEdit){
 	var content = document.createElement("div");
 	content.className = "section-wrapper";
 	var info = document.createElement("p");
-	info.textContent = "Here you can add/edit your system prompt:";
+	if (disableEdit){
+		info.textContent = "This is your active system prompt. To edit it, please close the active chat first.";
+	}else{
+		info.textContent = "Here you can add/edit your system prompt:";
+	}
 	var textC = document.createElement("div");
 	textC.className = "text-container";
 	var txt = document.createElement("textarea");
@@ -176,6 +196,10 @@ function buildSystemPromptEditComponent(txtareaHeight){
 		txt.placeholder = ("Enter your prompt here.");
 	}else{
 		txt.placeholder = ("Currently selected preset:\n" + sysPromptInfo.name);
+	}
+	if (disableEdit){
+		txt.disabled = true;
+		txt.title = "To edit your system prompt, please close the current chat first.";
 	}
 	content.appendChild(info);
 	content.appendChild(textC);
@@ -221,7 +245,10 @@ function buildChatHistoryListComponent(){
 		var previewTxt = document.createElement("div");
 		previewTxt.className = "list-item-desc";
 		previewTxt.setAttribute("tabindex", "0");
-		previewTxt.addEventListener("click", function(){
+		var prevTxtSpan = document.createElement("span");
+		prevTxtSpan.textContent = entry.content;
+		previewTxt.appendChild(prevTxtSpan);
+		wrap.addEventListener("click", function(){
 			var pop = showTextEditor(entry.content, {
 				intro: "Edit history at index " + entryIndex + ":",
 				placeholder: "Your chat history",
@@ -231,9 +258,6 @@ function buildChatHistoryListComponent(){
 				prevTxtSpan.textContent = newTxt;
 			});
 		});
-		var prevTxtSpan = document.createElement("span");
-		prevTxtSpan.textContent = entry.content;
-		previewTxt.appendChild(prevTxtSpan);
 		wrap.appendChild(header);
 		wrap.appendChild(previewTxt);
 		var removeBtn = document.createElement("button");
@@ -253,8 +277,14 @@ function buildChatHistoryListComponent(){
 function countTokensAndShowResult(){
 	llm.interface.getTokens().then((res) => {
 		if (res?.tokens){
-			showPopUp("Total tokens (system prompt + chat history): " + res.tokens.length, 
-				undefined, {width: "480px"});
+			var msg = "Total tokens (system prompt + chat history): " + res.tokens.length + "<br>";
+			if (res.modelContextLength){
+				msg += "Model context length: " + res.modelContextLength + "<br>";
+				if (res.modelContextLength < res.tokens.length){
+					msg += "<br>Your chat history exceeds the context length! This means that the model will not be able to remember your whole chat anymore.";
+				}
+			}
+			showPopUp(msg, undefined, {width: "480px"});
 		}else{
 			showPopUp("Failed to count tokens, sorry. Tokenizer returned invalid data.");
 		}

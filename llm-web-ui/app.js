@@ -262,7 +262,8 @@ function onNewChatReady(){
 function closeChat(){
 	contentPage.classList.add("empty");
 	contentPage.classList.remove("single-instance");
-	chat.history.clearAll();
+	var keepHistoryInSessionCache = true;		//NOTE: we clear the server history, but keep the session to reuse it later
+	chat.history.clearAll(keepHistoryInSessionCache);
 	mainChatView.innerHTML = "";
 	return new Promise((resolve, reject) => {
 		if (!chatIsClosed && llm.settings.getNumberOfServerSlots() > 0){

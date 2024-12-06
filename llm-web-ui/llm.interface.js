@@ -14,7 +14,7 @@ var chatMsgInterface;
 
 var T_MAX_PREDICT_MS = 90000;	//max time to do text-generation, measured since the first token. 0=infinite
 
-var serverPromptContextLength;	//prompt context configured on server
+var serverSettingsInfo = {};	//active server settings obtained from server itself
 
 export function setup(SERVER_API_URL, chatMsgInterf){
     API_URL = SERVER_API_URL;
@@ -131,8 +131,8 @@ export function chatCompletionSystemPromptOnly(slotId, template, newPrompt){
 	var sysPrompt = (newPrompt != undefined)? newPrompt : llm.settings.getActiveSystemPrompt();
 	var fullPrompt = buildSystemPrompt(template, sysPrompt);
 	var estimatedTokens = estimateTokens(fullPrompt);
+	//if (estimatedTokens > serverSettingsInfo?.modelContextLength)		//TODO: context overflow? see "truncated" response as well
 	var predictTime = T_MAX_PREDICT_MS;
-	//if (estimatedTokens > serverPromptContextLength)		//TODO: compare to server props
 	return fetch(endpointUrl, {
 		method: 'POST',
 		keepalive: true,		//NOTE: make sure this completes when the user closes the window
@@ -167,7 +167,13 @@ export function getTokens(promptAndOrHistory){
 		content: promptAndOrHistory,
 		add_special: false,
 		with_pieces: false
-	}, "TokenizerError", softFail);
+	}, "TokenizerError", softFail)
+	.then((res) => {
+		if (res && serverSettingsInfo?.modelContextLength){
+			res.modelContextLength = serverSettingsInfo.modelContextLength;
+		}
+		return res;
+	});
 }
 function estimateTokens(input){
 	return input?.split(/(?:\b|\s|\n)+/).length || 0;
@@ -179,8 +185,13 @@ export function getServerProps(softFail){
 	return callLlmServerFunction(endpointUrl, "GET", undefined, "FailedToLoadLlmServerInfo", softFail)
 	.then((serverInfo) => {
 		console.log("Server info:", serverInfo);
-		if (serverInfo){
-			serverPromptContextLength = serverInfo["n_ctx"];
+		if (serverInfo && serverInfo["default_generation_settings"]){
+			let serverSettings = serverInfo["default_generation_settings"];
+			serverSettingsInfo = {
+				modelContextLength: serverSettings["n_ctx"]
+			}
+		}else{
+			serverSettingsInfo = undefined;
 		}
 		return serverInfo;
 	});
@@ -379,8 +390,9 @@ function handleParsedMessage(message, answer, chatEle){
 	//console.log("processStreamData:", message.content); //DEBUG
 	if (message.stop){
 		if (message.truncated){
-			console.error("TODO: Message is truncated");	//DEBUG
-			chatEle.setFooterText("TRUNCATED");
+			//The chat history exceeds the model context length!
+			console.error("TODO: Message is truncated! Model context length: " + serverSettingsInfo?.modelContextLength);	//DEBUG
+			chatEle.setFooterText("CONTEXT OVERFLOW");
 		}
 		if (message.stopped_limit){
 			console.error("TODO: Message stopped due to limit!",
