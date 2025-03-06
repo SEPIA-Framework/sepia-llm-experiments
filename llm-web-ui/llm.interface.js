@@ -1,5 +1,6 @@
 import * as chatHistory from "./chat.history.js"
 import * as llmSettings from "./llm.settings.js"
+import * as uiChatMessage from "./ui.chat-message.js"
 
 var chat = {
 	history: chatHistory
@@ -7,18 +8,18 @@ var chat = {
 var llm = {
 	settings: llmSettings
 }
+var ui = {
+	chatMessage: uiChatMessage
+}
 
 var API_URL;
-
-var chatMsgInterface;
 
 var T_MAX_PREDICT_MS = 90000;	//max time to do text-generation, measured since the first token. 0=infinite
 
 var serverSettingsInfo = {};	//active server settings obtained from server itself
 
-export function setup(SERVER_API_URL, chatMsgInterf){
+export function setup(SERVER_API_URL){
     API_URL = SERVER_API_URL;
-    chatMsgInterface = chatMsgInterf;
 }
 
 //format prompt before sending
@@ -57,7 +58,7 @@ export async function chatCompletion(slotId, textIn, template){
 	}
 	var endpointUrl = API_URL + "completion";
 	var doStream = llm.settings.getStreamResultsEnabled();
-	var chatEle = chatMsgInterface.createNewChatAnswer();
+	var chatEle = ui.chatMessage.createAnswer();
 	chatEle.attach();
 	chatEle.showLoader();
 	const completionAbortCtrl = new AbortController();
@@ -414,6 +415,7 @@ function postProcessAnswerAndShow(answer, slotId, chatEle){
 		var ansJson;
 		var expectSepiaJson = llm.settings.getSepiaJsonFormat();
 		//TODO: improve whole JSON parsing etc.
+		//TODO: move to ui.chat-message.js (processing)
 		if (expectSepiaJson){
 			//try to clean up in advance (Gemma-2 2B has some issues here for example)
 			ans = ans.replace(/^(```json)/, "").replace(/^[\n]/, "");

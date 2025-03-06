@@ -1,10 +1,12 @@
 import * as uiComponents from "./ui.components.js"
+import * as uiChatMessage from "./ui.chat-message.js"
 import * as chatHistory from "./chat.history.js"
 import * as llmSettings from "./llm.settings.js"
 import * as llmInterface from "./llm.interface.js"
 
 var ui = {
-	components: uiComponents
+	components: uiComponents,
+	chatMessage: uiChatMessage
 }
 var chat = {
 	history: chatHistory
@@ -177,7 +179,7 @@ function startChat(){
 	//check free slots
 	var numOfSlots = llm.settings.getNumberOfServerSlots();
 	if (numOfSlots > 0){
-		var welcomeMsg = createNewChatAnswer("");
+		var welcomeMsg = ui.chatMessage.createAnswer("");
 		welcomeMsg.attach();
 		welcomeMsg.showLoader(true);
 		llm.interface.getFreeServerSlot(numOfSlots).then((slotId) => {
@@ -207,7 +209,7 @@ function startChat(){
 	}else{
 		//incompatible server
 		showPopUp("Sorry, but it seems that your server is incompatible with this version of the app. Please make sure it supports slot management.");
-		var welcomeMsg = createNewChatAnswer("");
+		var welcomeMsg = ui.chatMessage.createAnswer("");
 		welcomeMsg.attach();
 		welcomeMsg.setText("Please check your server settings and make sure to enable slot management.");
 		welcomeMsg.setFooterText("CHAT CLOSED");
@@ -226,7 +228,7 @@ function initNewChat(welcomeMsg, cacheSysPrompt){
 	
 	var welcomeMessageText = llm.settings.getSystemPromptInfo()?.welcomeMessage || "Hello world :-)";
 	if (!welcomeMsg){
-		welcomeMsg = createNewChatAnswer();
+		welcomeMsg = ui.chatMessage.createAnswer();
 		welcomeMsg.attach();
 	}
 	if (cacheSysPrompt){
@@ -350,7 +352,7 @@ function sendInput(){
 	console.log("sendInput - prompt:", message);	//DEBUG
 	textInputEle.value = '';
 	formatTextArea(textInputEle);
-	var newChatMsg = createNewChatPrompt(message);
+	var newChatMsg = ui.chatMessage.createPrompt(message);
 	newChatMsg.attach();
 	chat.history.add(llm.settings.getActiveServerSlot(), "user", message);
 	isPromptProcessing = true;
@@ -429,159 +431,11 @@ function restoreChatMessages(msgArray){
 	msgArray?.forEach((msg) => {
 		if (!msg.content) return;
 		if (msg.role == "user"){
-			createNewChatPrompt(msg.content, msg).attach();
+			ui.chatMessage.createPrompt(msg.content, msg).attach();
 		}else if (msg.role == "assistant"){
-			createNewChatAnswer(msg.content, msg).attach();
+			ui.chatMessage.createAnswer(msg.content, msg).attach();
 		}
 	});
-}
-function createNewChatAnswer(message, options){
-	var cb = createGeneralChatBubble(options);
-	cb.c.classList.add("assistant-reply");
-	cb.senderName.textContent = "SEPIA";
-	cb.senderIcon.innerHTML = '<svg fill="none" viewBox="0 0 600 600"><use xlink:href="#svg-sepia"></use></svg>';
-	if (message){
-		cb.setText(message);	//TODO: improve to parse code etc.
-	}
-	return cb;
-}
-function createNewChatPrompt(message, options){
-	var cb = createGeneralChatBubble(options);
-	cb.c.classList.add("user-prompt");
-	cb.senderName.textContent = "User";
-	cb.senderIcon.innerHTML = '<svg viewBox="0 0 45.532 45.532"><use xlink:href="#svg-profile"></use></svg>';
-	if (message){
-		cb.setText(message);	//TODO: improve to parse code etc.
-	}
-	return cb;
-}
-function createGeneralChatBubble(options){
-	var c = document.createElement("div");
-	c.className = "chat-msg-container";
-	var cm = document.createElement("div");
-	cm.className = "chat-msg";
-	var h = document.createElement("div");
-	h.className = "chat-msg-header";
-	var senderEle = document.createElement("div");
-	senderEle.className = "chat-msg-header-sender-box";
-	var senderIcon = document.createElement("div");
-	senderIcon.className = "chat-msg-header-sender-icon";
-	var senderName = document.createElement("div");
-	senderName.className = "chat-msg-header-sender-name";
-	senderEle.appendChild(senderIcon);
-	senderEle.appendChild(senderName);
-	var timeEle = document.createElement("div");
-	timeEle.className = "date-time";
-	var ts = options?.timestamp || Date.now();
-	var d = new Date(ts);
-	if ((Date.now() - ts) < (24*60*60*1000)){
-		timeEle.textContent = d.toLocaleTimeString();
-	}else{
-		timeEle.textContent = d.toLocaleDateString() + ", " + d.toLocaleTimeString();
-	}
-	h.appendChild(senderEle);
-	h.appendChild(timeEle);
-	var tb = document.createElement("div");
-	tb.className = "chat-msg-txt-container";
-	//var textEle = document.createElement("textarea");
-	var textEle = document.createElement("div");
-	textEle.className = "chat-msg-txt";
-	var loaderC = document.createElement("div");
-	loaderC.className = "chat-msg-loader";
-	loaderC.innerHTML = '<svg class="loading-icon" viewBox="0 0 55.37 55.37"><title>Click me to abort generation.</title><use xlink:href="#svg-loading-icon"></use></svg>';
-	loaderC.firstChild.addEventListener("click", function(){
-		console.log("Triggered completion stop signal");
-		llm.interface.abortChatCompletion();
-	});
-	var footer = document.createElement("div");
-	footer.className = "chat-msg-footer";
-	var activeTextParagraph = undefined;
-	var paragraphsAndCode = [];
-	var codeMode = false;
-	c.appendChild(cm);
-	cm.appendChild(h);
-	cm.appendChild(loaderC);
-	cm.appendChild(tb);
-	cm.appendChild(footer);
-	tb.appendChild(textEle);
-	var thisObj = {
-		c, senderIcon, senderName, timeEle,
-		showLoader: function(skipGlobalAbort){
-			loaderC.classList.add("active");
-			if (!skipGlobalAbort){
-				showAbortButton();
-			}
-			scrollToNewText(true);
-		},
-		hideLoader: function(keepGlobalAbort){
-			loaderC.classList.remove("active");
-			if (!keepGlobalAbort){
-				hideAbortButton();
-			}
-			scrollToNewText(true);
-		},
-		processText: function(t){
-			if (paragraphsAndCode.length == 1){
-				//handle first input
-				t = t.replace(/^[\r\n]+/m, "").replace(/^\s*/, "");
-				//console.error("first para.:", t);	//DEBUG
-			}
-			/* TODO: recognize code
-			if (t.startsWith("```")){
-				codeMode = true;
-				console.error("Code mode: " + codeMode);	//DEBUG
-			}
-			if (codeMode && t.endsWith("```")){
-				codeMode = false;
-				console.error("Code mode: " + codeMode);	//DEBUG
-			}*/
-			return t;
-		},
-		setText: function(t){
-			if (!activeTextParagraph){
-				thisObj.addText(t);
-			}else{
-				//console.error("setText:", t);	//DEBUG
-				activeTextParagraph.textContent = thisObj.processText(t);
-				scrollToNewText(true);
-			}
-		},
-		addText: function(t){
-			var textBox = document.createElement("div");
-			textBox.className = "chat-msg-txt-p";
-			textEle.appendChild(textBox);
-			activeTextParagraph = textBox;
-			paragraphsAndCode.push(textBox);
-			//console.error("addText:", t);		//DEBUG
-			textBox.textContent = thisObj.processText(t);
-			scrollToNewText(true);
-		},
-		clearText: function(){
-			textEle.innerHTML = "";
-			paragraphsAndCode = [];
-		},
-		setFooterText: function(t){
-			footer.classList.add("active");
-			footer.textContent = t;
-		},
-		hideFooter: function(){
-			footer.classList.remove("active");
-		},
-		addCommand: function(cmdJson){
-			var cmdBox = document.createElement("div");
-			cmdBox.className = "chat-cmd-code";
-			textEle.appendChild(cmdBox);
-			paragraphsAndCode.push(cmdBox);
-			cmdBox.textContent = JSON.stringify(cmdJson, null, 2);
-			activeTextParagraph = undefined;	//reset
-			scrollToNewText(true);
-		},
-		attach: function(){
-			mainChatView.appendChild(c);
-			scrollToNewText(false);
-		}
-	};
-	return thisObj;
 }
 
 function scrollToNewText(checkPos){
@@ -614,11 +468,23 @@ window.isChatClosed = function(){ return chatIsClosed; };
 
 //initialize
 ui.components.setup({
+	//chatUiHandlers
 	isChatClosed: function(){ return chatIsClosed; },
 	clearChatMessages: clearChatMessages,
 	restoreChatMessages: restoreChatMessages
 });
+ui.chatMessage.setup({
+	//chatUiHandlers
+	isChatClosed: function(){ return chatIsClosed; },
+	getMainChatView: function(){
+		return mainChatView;
+	},
+	showAbortButton: showAbortButton,
+	hideAbortButton: hideAbortButton,
+	scrollToNewText: scrollToNewText
+});
 chat.history.setup({
+	//chatUiHandlers
 	isChatClosed: function(){ return chatIsClosed; },
 	clearChatMessages: clearChatMessages,
 	restoreChatMessages: restoreChatMessages
@@ -626,7 +492,5 @@ chat.history.setup({
 llm.settings.setup(optionsMenu, {		//NOTE: optionsMenu is defined in common.js
 	showSystemPromptEditor: ui.components.showSystemPromptEditor
 });
-llm.interface.setup(LLM_API_URL, {
-	createNewChatAnswer: createNewChatAnswer
-});
+llm.interface.setup(LLM_API_URL);
 onPageReady();
