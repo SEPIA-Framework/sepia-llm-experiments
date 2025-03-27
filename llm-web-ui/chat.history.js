@@ -5,14 +5,18 @@ var llm = {
 }
 
 var chatHistory = {};	//NOTE: separate histories for each slotId
-var numberOfHistoryMsgToRestoreInChat = 4;
+var numberOfHistoryMsgToRestoreInChat = 6;
 var chatHistoryTemp = undefined;	//NOTE: this is used if we have no slot ID yet
 
 //handlers to check and manipulate main UI (see app.js)
 var chatUiHandlers;
 
 export function setup(chatUiHandl){
-	chatUiHandlers = chatUiHandl;
+	return new Promise((resolve, reject) => {
+		chatUiHandlers = chatUiHandl;
+		resolve();
+		//TODO: here we can implement history loading from any kind of DB etc.
+	});
 }
 
 //clear all
@@ -20,8 +24,13 @@ export function clearAll(keepInSessionCache){
 	if (keepInSessionCache){
 		var activeSlot = llm.settings.getActiveServerSlot();
 		if (activeSlot != undefined && activeSlot >= 0){
-			chatHistoryTemp = chatHistory[activeSlot];
+			let activeHist = chatHistory[activeSlot];
+			if (activeHist != undefined){
+				chatHistoryTemp = chatHistory[activeSlot];
+			}
 		}
+	}else{
+		chatHistoryTemp = undefined;
 	}
 	chatHistory = {};
 }
@@ -71,8 +80,10 @@ export function restore(hist){
 	update(llm.settings.getActiveServerSlot(), hist);
 	if (numberOfHistoryMsgToRestoreInChat && hist?.length){
 		chatUiHandlers.clearChatMessages();
+		let totalSize = hist.length;
 		let histN = hist.slice(-1 * numberOfHistoryMsgToRestoreInChat);
-		if (histN.length < hist.length){
+		let restoreSize = histN.length;
+		if (restoreSize < totalSize){
 			histN.unshift({
 				role: "assistant",
 				content: "...",
@@ -80,6 +91,9 @@ export function restore(hist){
 			});
 		}
 		chatUiHandlers.restoreChatMessages(histN);
+		return {historySize: totalSize, restored: restoreSize};
+	}else{
+		return;
 	}
 }
 

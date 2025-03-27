@@ -41,6 +41,8 @@ const mainChatView = document.getElementById("main-chat-view");
 var createChatBtn = document.getElementById("create-chat-btn");
 var closeChatBtn = document.getElementById("close-chat-btn");
 var editHistoryBtn = document.getElementById("edit-history-btn");
+//main menu (page center)
+var continueChatBtnMain = document.getElementById("continue-chat-main-menu-btn");
 
 //clean up before page close (TODO: mobile might require 'visibilitychange')
 window.addEventListener("beforeunload", function(e){
@@ -61,9 +63,29 @@ var completionFinishedBuffer = [];
 
 var isPromptProcessing = false;
 
+//init events
+function onUiReady(){
+	console.log("Welcome to the SEPIA LLM Web UI :-)");
+}
+function onServerReady(){
+	console.log("SEPIA LLM server is ready.");
+}
+function onInitError(err){
+	console.error("SEPIA LLM experienced an error during the init. phase.");
+}
+function onChatSetupReady(){
+	console.log("SEPIA LLM chat is set up and ready for input.");
+}
+function onChatSetupError(err){
+	console.error("SEPIA LLM chat failed to load:", err);
+}
+function onChatClosed(){
+	console.log("SEPIA LLM chat was closed.");
+}
+
 //initialize UI
 function onPageReady(){
-	console.log("Welcome to the SEPIA LLM Web UI :-)");
+	onUiReady();
 	llm.interface.getServerProps().then((serverInfo) => {
 		//make use of server info
 		if (serverInfo?.default_generation_settings?.model){
@@ -101,6 +123,7 @@ function onPageReady(){
 			var next = initBuffer.shift();
 			if (typeof next?.fun == "function") next.fun(initHadErrors);
 		}
+		onServerReady();
 	})
 	.catch((err) => {
 		if (err.name == "FailedToLoadPromptFile"){
@@ -126,6 +149,7 @@ function onPageReady(){
 			if (typeof next?.fun == "function") next.fun(initHadErrors);
 		}
 		blockChatStart = true;
+		onInitError(err);
 	});
 }
 function toggleButtonVis(enableChat){
@@ -140,6 +164,21 @@ function toggleButtonVis(enableChat){
 	}
 }
 toggleButtonVis(false);
+
+function enableContinueButtonOfMainMenu(){
+	continueChatBtnMain.style.removeProperty("display");
+}
+function disableContinueButtonOfMainMenu(){
+	continueChatBtnMain.style.display = "none";		//initially hidden - TODO: enable when history exists
+}
+function updateMainMenu(historySize){
+	if (historySize == undefined) historySize = chat.history.getActiveHistory()?.length;
+	if (historySize){
+		enableContinueButtonOfMainMenu();
+	}else{
+		disableContinueButtonOfMainMenu();
+	}
+}
 
 //create/close chat
 function startChat(){
@@ -204,6 +243,7 @@ function startChat(){
 				startChatBuffer = [];	//TODO: remove buffered actions or keep?
 				toggleButtonVis(true);
 				chatIsClosed = true;
+				onChatSetupError({name: "LlmServerBusy", message: "No free LLM server slots available right now."});
 			}
 		});
 	}else{
@@ -217,6 +257,7 @@ function startChat(){
 		startChatBuffer = [];	//TODO: remove buffered actions or keep?
 		toggleButtonVis(true);
 		chatIsClosed = true;
+		onChatSetupError({name: "LlmServerIncompatible", message: "LLM server is incompatible with the current UI version. Please upgrade."});
 	}
 }
 function initNewChat(welcomeMsg, cacheSysPrompt){
@@ -254,20 +295,30 @@ function initNewChat(welcomeMsg, cacheSysPrompt){
 }
 function onNewChatReady(){
 	//restore history
-	chat.history.restore();
+	let res = chat.history.restore();
+	if (res?.restored){
+		console.log("Chat history restored. Showing the last " + res.restored 
+			+ " of a total of " + res.historySize + " messages.");
+	}
 	//have some actions buffered?
 	while (startChatBuffer.length){
 		var next = startChatBuffer.shift();
 		if (typeof next?.fun == "function") next.fun();
 	}
+	onChatSetupReady();
 }
 function closeChat(){
 	contentPage.classList.add("empty");
 	contentPage.classList.remove("single-instance");
+	var histSize = chat.history.getActiveHistory()?.length;
 	var keepHistoryInSessionCache = true;		//NOTE: we clear the server history, but keep the session to reuse it later
 	chat.history.clearAll(keepHistoryInSessionCache);
 	mainChatView.innerHTML = "";
 	return new Promise((resolve, reject) => {
+		if (!chatIsClosed){
+			setTimeout(() => onChatClosed(), 0);
+			updateMainMenu(histSize);
+		}
 		if (!chatIsClosed && llm.settings.getNumberOfServerSlots() > 0){
 			//try to clean up server history
 			chatIsClosed = true;
@@ -295,8 +346,13 @@ function closeChat(){
 	});
 }
 function createNewChat(){
+	//clean-up history before starting new chat
+	chat.history.clearAll(false);
+	continueStoredChat();
+}
+function continueStoredChat(){
 	if (isPromptProcessing){
-		showPopUp("You input is still being processed. Please wait a few seconds until the chat has finished.");
+		showPopUp("Your input is still being processed. Please wait a few seconds until the chat has finished.");
 		//completionFinishedBuffer.push(function(){ createNewChat(); });
 		//llm.interface.abortChatCompletion();
 		return;
@@ -318,7 +374,10 @@ function editChatHistory(){
 	if (editHistoryBtn.classList.contains("disabled")){
 		showPopUp("To view/edit your chat history, please start a chat first.");
 	}else if (chatIsClosed){
-		ui.components.showSystemPromptEditor();
+		ui.components.showSystemPromptEditor(undefined, function(){
+			//closed - update main menu buttons
+			updateMainMenu();
+		});
 	}else{
 		ui.components.showChatHistoryEditor();
 	}
@@ -461,36 +520,54 @@ var lastAutoScrollPosEnd = undefined;
 window.toggleNavMenu = toggleNavMenu;
 window.toggleOptionsMenu = toggleOptionsMenu;
 window.createNewChat = createNewChat;
+window.continueStoredChat = continueStoredChat;
 window.editChatHistory = editChatHistory;
 window.closeChat = closeChat;
 window.startChat = startChat;
 window.isChatClosed = function(){ return chatIsClosed; };
 
 //initialize
-ui.components.setup({
-	//chatUiHandlers
-	isChatClosed: function(){ return chatIsClosed; },
-	clearChatMessages: clearChatMessages,
-	restoreChatMessages: restoreChatMessages
+Promise.resolve(() => {
+	console.log("Initializing SEPIA LLM interface ...");
+}).then(() => {
+	//Components
+	return ui.components.setup({
+		//chatUiHandlers
+		isChatClosed: function(){ return chatIsClosed; },
+		clearChatMessages: clearChatMessages,
+		restoreChatMessages: restoreChatMessages
+	});
+}).then(res => {
+	//UI messages
+	return ui.chatMessage.setup({
+		//chatUiHandlers
+		isChatClosed: function(){ return chatIsClosed; },
+		getMainChatView: function(){
+			return mainChatView;
+		},
+		showAbortButton: showAbortButton,
+		hideAbortButton: hideAbortButton,
+		scrollToNewText: scrollToNewText
+	});
+}).then(res => {
+	//Chat history
+	return chat.history.setup({
+		//chatUiHandlers
+		isChatClosed: function(){ return chatIsClosed; },
+		clearChatMessages: clearChatMessages,
+		restoreChatMessages: restoreChatMessages
+	});
+}).then(res => {
+	//LLM settings
+	return llm.settings.setup(optionsMenu, {		//NOTE: optionsMenu is defined in common.js
+		showSystemPromptEditor: ui.components.showSystemPromptEditor
+	});
+}).then(res => {
+	//LLM interface
+	return llm.interface.setup(LLM_API_URL);
+})
+.then(() => {
+	//READY
+	updateMainMenu();
+	onPageReady();
 });
-ui.chatMessage.setup({
-	//chatUiHandlers
-	isChatClosed: function(){ return chatIsClosed; },
-	getMainChatView: function(){
-		return mainChatView;
-	},
-	showAbortButton: showAbortButton,
-	hideAbortButton: hideAbortButton,
-	scrollToNewText: scrollToNewText
-});
-chat.history.setup({
-	//chatUiHandlers
-	isChatClosed: function(){ return chatIsClosed; },
-	clearChatMessages: clearChatMessages,
-	restoreChatMessages: restoreChatMessages
-});
-llm.settings.setup(optionsMenu, {		//NOTE: optionsMenu is defined in common.js
-	showSystemPromptEditor: ui.components.showSystemPromptEditor
-});
-llm.interface.setup(LLM_API_URL);
-onPageReady();

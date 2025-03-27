@@ -14,10 +14,13 @@ var llm = {
 var chatUiHandlers;
 
 export function setup(chatUiHandl){
-	chatUiHandlers = chatUiHandl;
+	return new Promise((resolve, reject) => {
+		chatUiHandlers = chatUiHandl;
+		resolve();
+	});
 }
 
-export function showSystemPromptEditor(disableEdit){
+export function showSystemPromptEditor(disableEdit, onCloseCallback){
 	var content = buildSystemPromptEditComponent("50vh", disableEdit);
 	var sysPromptInfo = llm.settings.getSystemPromptInfo();
 	var customSystemPrompt = llm.settings.getCustomSystemPrompt();
@@ -57,9 +60,10 @@ export function showSystemPromptEditor(disableEdit){
 			buttons.push({
 				name: "Edit history",
 				fun: function(){
-					showChatHistoryEditor();
+					showChatHistoryEditor(undefined, onCloseCallback);
 				},
-				closeAfterClick: true
+				closeAfterClick: true,
+				skipCloseCallback: true
 			});
 		}
 		buttons.push({
@@ -73,7 +77,7 @@ export function showSystemPromptEditor(disableEdit){
 			name: "Close",
 			closeAfterClick: true
 		});
-		addDragAndDropFileImport(content, function(txt){
+		addDragAndDropFileImport(content, function(txt){	//TODO: handle 'disableEdit' here?
 			importText(txt);
 		}, function(err){
 			console.error("Failed to load file:", err);		//DEBUG
@@ -85,8 +89,8 @@ export function showSystemPromptEditor(disableEdit){
 			try {
 				var txtJson = JSON.parse(txt);
 				restoreSystemPromptAndHistory(txtJson).then(() => {
-					pop.popUpClose();
-					showSystemPromptEditor();
+					pop.popUpClose(true);
+					showSystemPromptEditor(undefined, onCloseCallback);
 				}).catch((err) => {
 					console.error("Failed to load file:", err);		//DEBUG
 					showPopUp("Failed to load file. JSON data seems to be corrupted.");
@@ -99,10 +103,11 @@ export function showSystemPromptEditor(disableEdit){
 	}
 	var pop = showPopUp(content, buttons, {
 		width: "800px"
-	});
+	}, onCloseCallback);
 }
 
-export function showChatHistoryEditor(){
+export function showChatHistoryEditor(todo_disableEdit, onCloseCallback){
+	//TODO: implement 'disableEdit'
 	var content = buildChatHistoryListComponent();
 	var buttons = [{
 		name: "Export",
@@ -134,22 +139,23 @@ export function showChatHistoryEditor(){
 			chat.history.update(llm.settings.getActiveServerSlot(), []);
 			chat.history.clearHistoryCache();
 			chatUiHandlers.clearChatMessages();
-			pop.popUpClose();
-			showChatHistoryEditor();
+			pop.popUpClose(true);
+			showChatHistoryEditor(undefined, onCloseCallback);
 		},
 		closeAfterClick: false
 	},{
 		name: "Show prompt",
 		fun: function(){
 			var disableEdit = !chatUiHandlers.isChatClosed();
-			showSystemPromptEditor(disableEdit);
+			showSystemPromptEditor(disableEdit, onCloseCallback);
 		},
-		closeAfterClick: chatUiHandlers.isChatClosed()
+		closeAfterClick: chatUiHandlers.isChatClosed(),
+		skipCloseCallback: chatUiHandlers.isChatClosed()
 	},{
 		name: "Close",
 		closeAfterClick: true
 	}];
-	addDragAndDropFileImport(content, function(txt){
+	addDragAndDropFileImport(content, function(txt){	//TODO: handle 'disableEdit' here?
 		importText(txt);
 	}, function(err){
 		console.error("Failed to load file:", err);		//DEBUG
@@ -159,13 +165,13 @@ export function showChatHistoryEditor(){
 	});
 	var pop = showPopUp(content, buttons, {
 		width: "800px"
-	});
+	}, onCloseCallback);
 	var importText = function(txt){
 		try {
 			var txtJson = JSON.parse(txt);
 			restoreSystemPromptAndHistory(txtJson).then(() => {
-				pop.popUpClose();
-				showChatHistoryEditor();
+				pop.popUpClose(true);
+				showChatHistoryEditor(undefined, onCloseCallback);
 			}).catch((err) => {
 				console.error("Failed to load file:", err);		//DEBUG
 				showPopUp("Failed to load file. JSON data seems to be corrupted.");

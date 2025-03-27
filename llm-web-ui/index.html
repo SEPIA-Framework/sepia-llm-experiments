@@ -48,8 +48,7 @@
 			<h3 id="main-headline" class="text-shadow-1" style="display: none;">Tools</h3>
 		</div>
 		<div class="header-section hide-when-small" style="justify-content: end;">
-			<!--
-			<button onclick="loadStoredChat();" title="Load stored chat.">
+			<!--<button id="continue-chat-btn" onclick="continueStoredChat();" title="Continue previous chat, if a chat history exists.">
 				<svg viewBox="0 0 16 16" style="width: 14px; fill: currentColor;"><use xlink:href="#svg-folder"></use></svg>
 			</button>-->
 			<button id="create-chat-btn" onclick="createNewChat();" title="Create a new chat, forget history and reload options.">
@@ -113,8 +112,11 @@
 				<div class="nc-menu-section">
 					<h3 style="margin: 16px 8px;">SEPIA LLM Experiments:</h3>
 				</div>
+				<div id="continue-chat-main-menu-btn" class="nc-menu-section">
+					<button class="big" onclick="continueStoredChat();">CONTINUE CHAT</button>
+				</div>
 				<div class="nc-menu-section">
-					<button class="big" onclick="startChat();">START CHAT</button>
+					<button class="big" onclick="createNewChat();">START NEW CHAT</button>
 				</div>
 				<div class="nc-menu-section">
 					<h3 style="margin: 16px 8px;">SEPIA Pages:</h3>

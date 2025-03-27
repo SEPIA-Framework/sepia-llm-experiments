@@ -117,7 +117,7 @@ appIconSvg.addEventListener("click", toggleColorStyle);
 
 //UI components:
 
-function showPopUp(content, buttons, options){
+function showPopUp(content, buttons, options, onCloseCallback){
 	mainView.inert = true;	//lock main
 	document.body.classList.add("disable-interaction");
 	var popUpOverlay = document.createElement("div");
@@ -149,19 +149,20 @@ function showPopUp(content, buttons, options){
 			btnEle.textContent = btn.name || ("Button " + i);	
 			btnEle.addEventListener("click", function(){
 				if (typeof btn.fun == "function") btn.fun();
-				if (btn.closeAfterClick) popUpOverlay.popUpClose();
+				if (btn.closeAfterClick) popUpOverlay.popUpClose(btn.skipCloseCallback);
 			});
 			btnBox.appendChild(btnEle);
 		});
 	}
 	//close function
 	var isClosed = false;
-	popUpOverlay.popUpClose = function(){
+	popUpOverlay.popUpClose = function(skipCloseCallback){
 		if (isClosed) return;
 		mainView.inert = false;	//release main
 		document.body.classList.remove("disable-interaction");
 		popUpOverlay.remove();
 		isClosed = true;
+		if (onCloseCallback && !skipCloseCallback) onCloseCallback();
 	}
 	popUpCloseBtn.addEventListener("click", function(ev){
 		popUpOverlay.popUpClose();

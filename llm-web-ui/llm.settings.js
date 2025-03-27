@@ -15,47 +15,51 @@ var activeSystemPrompt = undefined;
 var llmServerSlots = 0;
 
 export function setup(optionsMenu, injectedFun){
-	chatSlotIdEle = optionsMenu.querySelector("[name=option-chat-slot-id]");
-	chatHistoryMaxEle = optionsMenu.querySelector("[name=option-chat-history-max]");
-	chatTemplateEle = optionsMenu.querySelector("[name=option-chat-template]");
-	systemPromptEle = optionsMenu.querySelector("[name=option-system-prompt]");
-	streamResultEle = optionsMenu.querySelector("[name=option-stream-result]");
-	cachePromptsOnServerEle = optionsMenu.querySelector("[name=option-cache-prompts]");
-	expectSepiaJsonEle = optionsMenu.querySelector("[name=option-expect-sepia-json]");
-	
-	//set start values
-	chatSlotIdEle.value = -1;
-	chatHistoryMaxEle.value = -1;	//-1 = whatever the model/server can handle
-	cachePromptsOnServerEle.checked = true;
-	
-	//add prompts to selector
-	systemPrompts.forEach((sp, index) => {
-		var opt = document.createElement("option");
-		opt.textContent = sp.name;
-		opt.value = (sp.value != undefined)? sp.value : sp.name;
-		if (index == 0) opt.selected = true;
-		systemPromptEle.appendChild(opt);
-	});
-	//load prompts via selector
-	systemPromptEle.addEventListener("change", function(){
-		loadSystemPrompt(systemPromptEle.value).catch((err) => {
-			if (err.name == "FailedToLoadSystemPrompt"){
-				console.error("Failed to load system prompt.", err);
-				injectedFun.showSystemPromptEditor();
-				//showPopUp("ERROR: " + (err?.message || "Failed to load system prompt."));
-			}else{
-				console.error("Failed to load system prompt file.", err);
-				showPopUp("ERROR: " + (err?.message || "Failed to load system prompt file."));
-			}
+	return new Promise((resolve, reject) => {
+		chatSlotIdEle = optionsMenu.querySelector("[name=option-chat-slot-id]");
+		chatHistoryMaxEle = optionsMenu.querySelector("[name=option-chat-history-max]");
+		chatTemplateEle = optionsMenu.querySelector("[name=option-chat-template]");
+		systemPromptEle = optionsMenu.querySelector("[name=option-system-prompt]");
+		streamResultEle = optionsMenu.querySelector("[name=option-stream-result]");
+		cachePromptsOnServerEle = optionsMenu.querySelector("[name=option-cache-prompts]");
+		expectSepiaJsonEle = optionsMenu.querySelector("[name=option-expect-sepia-json]");
+		
+		//set start values
+		chatSlotIdEle.value = -1;
+		chatHistoryMaxEle.value = -1;	//-1 = whatever the model/server can handle
+		cachePromptsOnServerEle.checked = true;
+		
+		//add prompts to selector
+		systemPrompts.forEach((sp, index) => {
+			var opt = document.createElement("option");
+			opt.textContent = sp.name;
+			opt.value = (sp.value != undefined)? sp.value : sp.name;
+			if (index == 0) opt.selected = true;
+			systemPromptEle.appendChild(opt);
 		});
-	});
-	
-	//add templates to selector
-	chatTemplates.forEach((tmpl) => {
-		var opt = document.createElement("option");
-		opt.textContent = tmpl.name;
-		opt.value = tmpl.name;
-		chatTemplateEle.appendChild(opt);
+		//load prompts via selector
+		systemPromptEle.addEventListener("change", function(){
+			loadSystemPrompt(systemPromptEle.value).catch((err) => {
+				if (err.name == "FailedToLoadSystemPrompt"){
+					console.error("Failed to load system prompt.", err);
+					injectedFun.showSystemPromptEditor();
+					//showPopUp("ERROR: " + (err?.message || "Failed to load system prompt."));
+				}else{
+					console.error("Failed to load system prompt file.", err);
+					showPopUp("ERROR: " + (err?.message || "Failed to load system prompt file."));
+				}
+			});
+		});
+		
+		//add templates to selector
+		chatTemplates.forEach((tmpl) => {
+			var opt = document.createElement("option");
+			opt.textContent = tmpl.name;
+			opt.value = tmpl.name;
+			chatTemplateEle.appendChild(opt);
+		});
+
+		resolve();
 	});
 }
 //chat template and active model
@@ -253,7 +257,7 @@ export function getKnownBosTokens(){
 const systemPrompts = [{
 	name: "SEPIA Chat",
 	value: "sepia_chat_basic",
-	promptText: "You are a voice assistant, your name is SEPIA. You have been created to answer general knowledge questions and have a nice and friendly conversation. Your answers are short and precise, but can be funny sometimes.",
+	promptText: "You are a voice assistant, your name is SEPIA. You have been created to answer general knowledge questions and have a nice and friendly conversation. Your answers are short and precise, but can be funny sometimes. You don't make stuff up.",
 	welcomeMessage: "Hello, my name is SEPIA. I'm here to answer your questions and have a friendly conversation :-)",
 	expectSepiaJson: false
 },{
