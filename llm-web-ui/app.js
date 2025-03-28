@@ -54,6 +54,10 @@ var LLM_API_URL = getUrlParameter("llmServer") || getUrlParameter("llm_server") 
 if (!LLM_API_URL.endsWith("/")) LLM_API_URL += "/";
 console.log("LLM server URL:", LLM_API_URL);
 
+var continueChatWhenReady = getUrlParameter("continueChat")?.toLowerCase();
+if (continueChatWhenReady == "1" || continueChatWhenReady == "true") continueChatWhenReady = true;
+else continueChatWhenReady = false;
+
 var isInitialized = false;
 var blockChatStart = false;
 var chatIsClosed = true;
@@ -62,6 +66,7 @@ var startChatBuffer = [];
 var completionFinishedBuffer = [];
 
 var isPromptProcessing = false;
+var initLoadingPopup = undefined;
 
 //init events
 function onUiReady(){
@@ -81,6 +86,13 @@ function onChatSetupError(err){
 }
 function onChatClosed(){
 	console.log("SEPIA LLM chat was closed.");
+}
+
+//pre-init
+function preInitialization(){
+	if (continueChatWhenReady){
+		initLoadingPopup = showPopUp("Resuming conversation. Please wait ...");
+	}
 }
 
 //initialize UI
@@ -124,6 +136,10 @@ function onPageReady(){
 			if (typeof next?.fun == "function") next.fun(initHadErrors);
 		}
 		onServerReady();
+		if (continueChatWhenReady){
+			continueStoredChat();
+			initLoadingPopup?.popUpClose();
+		}
 	})
 	.catch((err) => {
 		if (err.name == "FailedToLoadPromptFile"){
@@ -525,6 +541,9 @@ window.editChatHistory = editChatHistory;
 window.closeChat = closeChat;
 window.startChat = startChat;
 window.isChatClosed = function(){ return chatIsClosed; };
+
+//pre-init
+preInitialization();
 
 //initialize
 Promise.resolve(() => {
