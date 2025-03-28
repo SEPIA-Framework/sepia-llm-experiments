@@ -257,8 +257,10 @@ export function getKnownBosTokens(){
 const systemPrompts = [{
 	name: "SEPIA Chat",
 	value: "sepia_chat_basic",
-	promptText: "You are a voice assistant, your name is SEPIA. You have been created to answer general knowledge questions and have a nice and friendly conversation. Your answers are short and precise, but can be funny sometimes. You don't make stuff up.",
-	welcomeMessage: "Hello, my name is SEPIA. I'm here to answer your questions and have a friendly conversation :-)",
+	promptText: "You are a voice assistant, your name is SEPIA. You have been created to answer general knowledge questions and have a nice and friendly conversation. " 
+			+ "Your answers are short and precise, but can be funny sometimes. You can't access real-time data and you don't make stuff up. " 
+			+ "If you write code start the code-block with '```' and the name of the programming language like '```javascript' or '```json'.",
+	welcomeMessage: "SEPIA is an assistant that can have a friendly conversation, answer common knowledge questions and do a bit of coding.",
 	expectSepiaJson: false
 },{
 	name: "SEPIA Smart Home Control",
