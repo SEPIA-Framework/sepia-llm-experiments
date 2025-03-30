@@ -100,9 +100,10 @@ function onPageReady(){
 	onUiReady();
 	llm.interface.getServerProps().then((serverInfo) => {
 		//make use of server info
-		if (serverInfo?.default_generation_settings?.model){
-			var model = serverInfo.default_generation_settings.model;
+		var model = serverInfo?.default_generation_settings?.model || serverInfo?.model_path;
+		if (model){
 			var possibleTemplateMatch = llm.settings.findBestModelMatch(model);
+			console.log("Using LLM template:", possibleTemplateMatch?.name || "---");		//DEBUG
 			if (possibleTemplateMatch){
 				llm.settings.setChatTemplate(possibleTemplateMatch.name);
 			}
@@ -158,6 +159,7 @@ function onPageReady(){
 		}else{
 			console.error("Error in 'onPageReady' function:", err);
 		}
+		initLoadingPopup?.popUpClose();
 		isInitialized = true;
 		let initHadErrors = true;
 		while (initBuffer.length){

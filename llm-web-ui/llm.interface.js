@@ -19,7 +19,10 @@ var T_MAX_PREDICT_MS = 90000;	//max time to do text-generation, measured since t
 var serverSettingsInfo = {};	//active server settings obtained from server itself
 
 export function setup(SERVER_API_URL){
-    API_URL = SERVER_API_URL;
+	return new Promise((resolve, reject) => {
+    	API_URL = SERVER_API_URL;
+		resolve();
+	});
 }
 
 //format prompt before sending
@@ -111,7 +114,9 @@ export async function chatCompletion(slotId, textIn, template){
     }
 	//console.log("response", response);		//DEBUG
 	try {
+		//process in real-time
 		var answer = await processStreamData(response, doStream, chatEle, completionAbortCtrl);
+		//process the full result once more
 		answer = postProcessAnswerAndShow(answer, slotId, chatEle);
 		chatEle.hideLoader();
 	}catch(err){
@@ -302,7 +307,7 @@ async function processStreamData(response, isStream, chatEle, completionAbortCtr
 		var scanDecodedText = function(isLast){
 			//look for line break or end
 			if (textBuffer){
-				var lines = textBuffer.split(/\n\s*\n/);
+				var lines = textBuffer.split(/\n\s*\n/);	//NOTE: we assume that we never get CRLF
 				//console.log("lines:", lines);			//DEBUG
 				//console.log("processing lines:", lines.length);			//DEBUG
 				if (lines.length > 1){
@@ -311,7 +316,7 @@ async function processStreamData(response, isStream, chatEle, completionAbortCtr
 					//parse everything up till rest
 					for (const l of lines){
 						var message = parseDataString(l);
-						let res = handleParsedMessage(message, answer, chatEle);
+						let res = handleParsedMessage(message, answer, chatEle, isStream);
 						if (res.answer){
 							answer = res.answer;
 						}
@@ -324,7 +329,7 @@ async function processStreamData(response, isStream, chatEle, completionAbortCtr
 				if (isLast && textBuffer){
 					var message = parseDataString(textBuffer);
 					console.log("message JSON:", message);		//DEBUG
-					let res = handleParsedMessage(message, answer, chatEle);
+					let res = handleParsedMessage(message, answer, chatEle, isStream);
 					if (res.answer){
 						answer = res.answer;
 					}
@@ -357,7 +362,7 @@ async function processStreamData(response, isStream, chatEle, completionAbortCtr
 			chatEle.setFooterText("CANCELED");
 		}else{
 			console.log("message JSON:", message);		//DEBUG
-			let res = handleParsedMessage(message, answer, chatEle);
+			let res = handleParsedMessage(message, answer, chatEle, isStream);
 			if (res.reachedLimit){
 				//TODO: handle
 			}
@@ -373,20 +378,27 @@ function ignoreFinalMessage(message){
 	}
 	return "";
 }
-function handleParsedMessage(message, answer, chatEle){
+function handleParsedMessage(message, answer, chatEle, isStream){
 	if (message.timings){
 		console.log("time to process prompt (ms):", message.timings?.prompt_ms);		//DEBUG
 		console.log("time to generate answer (ms):", message.timings?.predicted_ms);	//DEBUG
 	}
 	let slotId = message.id_slot;
-	let expectedSlotId = llm.settings.getActiveServerSlot();
-	if (slotId != expectedSlotId && expectedSlotId != -1){
-		console.error("Wrong slot ID - Expected: " + expectedSlotId, "saw:", slotId);	//DEBUG
-		chatEle.setFooterText("SERVER SLOT ISSUE");
-		return {break: true};
+	if (slotId != undefined && slotId !== -1){
+		//NOTE: during streaming, id_slot will usually be -1, thats why we have to ignore it until last msg
+		let expectedSlotId = llm.settings.getActiveServerSlot();
+		if (slotId != expectedSlotId && expectedSlotId != -1){
+			console.error("Wrong slot ID - Expected: " + expectedSlotId, "saw:", slotId);	//DEBUG
+			chatEle.setFooterText("SERVER SLOT ISSUE");
+			return {break: true};
+		}
 	}
 	answer += message.content;
-	chatEle.setText(answer);
+	if (isStream){
+		chatEle.streamText(message.content);
+	}else{
+		chatEle.setText(answer);
+	}
 	chatEle.hideLoader(true);
 	//console.log("processStreamData:", message.content); //DEBUG
 	if (message.stop){
@@ -405,51 +417,47 @@ function handleParsedMessage(message, answer, chatEle){
 	return {break: false, answer: answer};
 }
 function postProcessAnswerAndShow(answer, slotId, chatEle){
+	//console.error("postProcessAnswerAndShow", answer);		//DEBUG
 	answer = answer.replace(/^[\r\n]+/, "").replace(/[\r\n]+$/, "");	//remove leading and trailing line breaks
-	var answers = answer.split(/^[\r\n]+/gm);
+	var answers = answer.split(/^[\r\n]+/m);		//NOTE: we split paragraphs by looking for empty lines that are just line-breaks
 	console.log("answers:", answers);		//DEBUG
 	chatEle.clearText();
 	answers.forEach(ans => {
-		//process all answers if there was more than one and the LLM got confused
+		//process all answers if there was more than one, in case the LLM or server got confused (or decided to split the stream for any reason)
 		ans = ans.trim();
-		var ansJson;
 		var expectSepiaJson = llm.settings.getSepiaJsonFormat();
-		//TODO: improve whole JSON parsing etc.
-		//TODO: move to ui.chat-message.js (processing)
 		if (expectSepiaJson){
-			//try to clean up in advance (Gemma-2 2B has some issues here for example)
-			ans = ans.replace(/^(```json)/, "").replace(/^[\n]/, "");
+			//Special processing for JSON answer
+			//TODO: improve JSON parsing etc.
+			ans = ans.replace(/^(```json)/, "").replace(/^[\n]/, "");	//try to clean up in advance (some LLMs have issues here)
 			ans = ans.replace(/(```)$/, "").replace(/[\n]$/, "");
-		}
-		if (ans.startsWith('{"') && ans.endsWith('}')){
-			try {
-				//TODO: this can fail for example if quotes where used inside the JSON message (not escaped \") or if it wasn't meant to be JSON at all
-				ansJson = JSON.parse(ans);
-				chat.history.add(slotId, "assistant", JSON.stringify(ansJson));
-			}catch(err){
-				if (expectSepiaJson){
+			var ansJson;
+			if (ans.startsWith('{"') && ans.endsWith('}')){
+				try {
+					//TODO: this can fail for example if quotes where used inside the JSON message (not escaped \") or if it wasn't meant to be JSON at all
+					ansJson = JSON.parse(ans);
+					chat.history.add(slotId, "assistant", JSON.stringify(ansJson));
+				}catch(err){
 					console.error("Failed to handle answer while trying to parse:", ans);		//DEBUG
 					ansJson = {"error": "Failed to handle answer while trying to parse JSON"};
-				}else{
-					chat.history.add(slotId, "assistant", ans);
 				}
-			}
-		}else{
-			ansJson = {command: "chat", message: ans};	//NOTE: this will recover text if SEPIA JSON was expected but LLM decided to ignore it
-			if (expectSepiaJson){
+			}else{
+				ansJson = {command: "chat", message: ans};	//NOTE: this will recover text if SEPIA JSON was expected but LLM decided to ignore it
 				chat.history.add(slotId, "assistant", JSON.stringify(ansJson));
-			}else{
-				chat.history.add(slotId, "assistant", ans);
 			}
-		}
-		if (ansJson?.command){
-			if (ansJson.command == "chat"){
-				chatEle.addText(ansJson.message);
+			if (ansJson?.command){
+				if (ansJson.command == "chat"){
+					chatEle.addText(ansJson.message);
+				}else{
+					//TODO: check ansJson.error and skip or break
+					chatEle.addCommand(ansJson);
+				}
 			}else{
-				//TODO: check ansJson.error and skip or break
-				chatEle.addCommand(ansJson);
+				chatEle.addText(ans);
 			}
 		}else{
+			//Regular answer. Processed inside chat message object
+			chat.history.add(slotId, "assistant", ans);
 			chatEle.addText(ans);
 		}
 	});
