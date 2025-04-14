@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=1">
+	<title>SEPIA LLM Embedding Test</title>
+
+	<style>
+		* {
+			box-sizing: border-box;
+		}
+		html, body {
+			display: flex;
+			width: 100%;
+			height: 100%;
+			margin: 0;
+			padding: 0;
+		}
+		.iframe-container {
+			display: flex;
+			width: 100%;
+			height: 100%;
+			padding: 8px;
+		}
+		iframe {
+			width: 100%;
+			height: 100%;
+			border: 1px solid currentColor;
+		}
+	</style>
+	
+	<script>
+	
+	</script>
+</head>
+<body>
+	<div class="iframe-container">
+		<iframe id="llm-ui"></iframe>
+	</div>
+</body>
+<script>
+	var llmUi = document.getElementById("llm-ui");
+	
+	function onLoad(){
+		console.log("EMBED TEST - Page ready");
+		llmUi.src = "index.html?color=light&llmServer=http://localhost:20733&embeddingApi=1";
+		llmUi.onload = onIframeReady;
+	}
+	
+	function onIframeReady(){
+		console.log("EMBED TEST - Iframe ready");
+	}
+	
+	function handleMessage(ev){
+		var msg = ev.data;
+		console.log("EMBED TEST - Received msg:", msg);
+		if (msg?.interfaceName == "llm-ui-interface-msg"){
+			console.log("EMBED TEST - LLM UI interface event:", msg.data);
+			if (msg.data?.readyEventName == "ui-ready"){
+				console.log("EMBED TEST - Saw UI-READY event - Sending test...");
+				sendTestMessage();
+			}else if (msg.data?.readyEventName == "server-ready"){
+				console.log("EMBED TEST - Saw SERVER-READY event.");
+			}else if (msg.data?.readyEventName == "chat-ready"){
+				console.log("EMBED TEST - Saw CHAT-READY event.");
+			}
+		}
+	}
+	
+	function sendTestMessage(){
+		var msg = {
+			interfaceName: "llm-ui-interface-msg",
+			data: {
+				testEvent: "hello-world"
+			}
+		}
+		llmUi.contentWindow.postMessage(msg, "*");
+	}
+	
+	window.addEventListener("load", onLoad);
+	window.addEventListener("message", handleMessage);
+</script>
+</html>

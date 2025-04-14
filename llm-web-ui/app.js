@@ -6,7 +6,8 @@ import * as llmInterface from "./llm.interface.js"
 
 var ui = {
 	components: uiComponents,
-	chatMessage: uiChatMessage
+	chatMessage: uiChatMessage,
+	embeddingApi: undefined		//this will hold the imported module after setup, if embedding API is enabled
 }
 var chat = {
 	history: chatHistory
@@ -54,6 +55,9 @@ var LLM_API_URL = getUrlParameter("llmServer") || getUrlParameter("llm_server") 
 if (!LLM_API_URL.endsWith("/")) LLM_API_URL += "/";
 console.log("LLM server URL:", LLM_API_URL);
 
+var enableEmbeddingApi = getUrlParameter("embeddingApi")?.toLowerCase();
+if (enableEmbeddingApi == "1" || enableEmbeddingApi == "true") enableEmbeddingApi = 1;	//NOTE: we might support more than one type later
+
 var continueChatWhenReady = getUrlParameter("continueChat")?.toLowerCase();
 if (continueChatWhenReady == "1" || continueChatWhenReady == "true") continueChatWhenReady = true;
 else continueChatWhenReady = false;
@@ -71,21 +75,39 @@ var initLoadingPopup = undefined;
 //init events
 function onUiReady(){
 	console.log("Welcome to the SEPIA LLM Web UI :-)");
+	if (enableEmbeddingApi){
+		ui.embeddingApi.sendReadyEvent("ui-ready");
+	}
 }
 function onServerReady(){
 	console.log("SEPIA LLM server is ready.");
+	if (enableEmbeddingApi){
+		ui.embeddingApi.sendReadyEvent("server-ready");
+	}
 }
 function onInitError(err){
 	console.error("SEPIA LLM experienced an error during the init. phase.");
+	if (enableEmbeddingApi){
+		ui.embeddingApi.sendReadyEventError("init-error");
+	}
 }
 function onChatSetupReady(){
 	console.log("SEPIA LLM chat is set up and ready for input.");
+	if (enableEmbeddingApi){
+		ui.embeddingApi.sendReadyEvent("chat-ready");
+	}
 }
 function onChatSetupError(err){
 	console.error("SEPIA LLM chat failed to load:", err);
+	if (enableEmbeddingApi){
+		ui.embeddingApi.sendReadyEventError("chat-setup-error");
+	}
 }
 function onChatClosed(){
 	console.log("SEPIA LLM chat was closed.");
+	if (enableEmbeddingApi){
+		ui.embeddingApi.sendUiEvent("chat-closed");
+	}
 }
 
 //pre-init
@@ -551,6 +573,23 @@ preInitialization();
 Promise.resolve(() => {
 	console.log("Initializing SEPIA LLM interface ...");
 }).then(() => {
+	//Load embedding module
+	if (enableEmbeddingApi == 1){
+		//load postMessage interface
+		console.log("Importing embedding API module ...");
+		return import("./ui.embedding-api.js");
+	}else{
+		return;
+	}
+}).then(embedModule => {
+	//assign embed API
+	if (embedModule && embedModule.sendReadyEvent){
+		ui.embeddingApi = embedModule;
+		return ui.embeddingApi.setup(parent);	//NOTE: for now we assume 'parent' is the correct window
+	}else{
+		ui.embeddingApi = undefined;
+	}
+}).then(res => {
 	//Components
 	return ui.components.setup({
 		//chatUiHandlers
@@ -591,4 +630,11 @@ Promise.resolve(() => {
 	//READY
 	updateMainMenu();
 	onPageReady();
+})
+//ERROR
+.catch(err => {
+	showPopUp("ERROR: Failed to initialize app.<br><br>" 
+		+ "Name: " + (err?.name || "unknown") + "<br>"
+		+ "Message: " + (err?.message || "undefined")
+	);
 });
