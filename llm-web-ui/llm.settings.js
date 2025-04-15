@@ -67,7 +67,7 @@ export function getActiveModel(){
 	return chatTemplateEle.value || chatTemplates[0].name;
 }
 export function findBestModelMatch(modelName){
-	var baseModel = modelName.match(/(tiny|olmo|dolphin)/i) || modelName.match(/(gemma|mistral|phi|llama)/i);	//TODO: add more/fix when templates grow
+	var baseModel = modelName.match(/(tiny|olmo|dolphin|deepseek)/i) || modelName.match(/(gemma|mistral|phi|llama)/i);	//TODO: add more/fix when templates grow
 	baseModel = baseModel? baseModel[0] : "";
 	var fallbackTemplate = "";
 	switch (baseModel) {
@@ -211,6 +211,18 @@ const chatTemplates = [{
 	bosToken: "<s>",
 	endOfPromptToken: "<|assistant|>\n",
 	stopSignals: ["</s>", "<|end|>"]
+},{
+	name: "DeepSeek-R1-Distilled",
+	llmInfo: {
+		infoPrompt: "Your LLM is called DeepSeek R1 distilled, works offline, on device, is open and may be used commercially under certain conditions. DeepSeek R1 has been trained by the company DeepSeek, but your training data is somewhat of a mystery. " 
+			+ "A distilled language model is a smaller, more efficient model trained to replicate the behavior and knowledge of a larger, complex language model, enabling a somewhat similar performance with reduced computational resources."
+	},
+	system: "{{INSTRUCTION}}\n\n",
+	user: "<｜User｜>{{CONTENT}}",
+	assistant: "<｜Assistant｜>{{CONTENT}}",
+	bosToken: "<｜begin▁of▁sentence｜>",
+	endOfPromptToken: "<｜Assistant｜>",
+	stopSignals: ["<｜end▁of▁sentence｜>"]
 },{
 	name: "OLMo_7B_Instruct",
 	llmInfo: {
