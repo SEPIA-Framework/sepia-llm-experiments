@@ -4,15 +4,16 @@ var registeredHandler = false;
 var setupDone = false;
 
 export function setup(interfaceWin){
+	//NOTE: 'interfaceWindow' should be 'window.parent' or 'iframe.contentWindow' etc.
 	return new Promise((resolve, reject) => {
-		interfaceWindow = interfaceWin.contentWindow || interfaceWin;
-		if (!interfaceWindow){
+		if (!interfaceWin){
 			reject({name: "EmbedApiError", message: "Missing window for 'postMessage' interface."});
-		}else if (typeof interfaceWindow.postMessage != "function"){
+		}else if (typeof interfaceWin.postMessage != "function"){
 			reject({name: "EmbedApiError", message: "Interface window had no 'postMessage' support."});
-		}else if (interfaceWindow == window){
+		}else if (interfaceWin == window){
 			reject({name: "EmbedApiError", message: "Interface window and origin are identical."});
 		}else{
+			interfaceWindow = interfaceWin;
 			registerMessageHandler();
 			setupDone = true;
 			resolve();

@@ -637,4 +637,5 @@ Promise.resolve(() => {
 		+ "Name: " + (err?.name || "unknown") + "<br>"
 		+ "Message: " + (err?.message || "undefined")
 	);
+	onInitError(err);
 });
