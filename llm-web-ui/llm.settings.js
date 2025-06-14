@@ -7,7 +7,7 @@ var chatTemplateEle = undefined;
 var systemPromptEle = undefined;
 var streamResultEle = undefined;
 var cachePromptsOnServerEle = undefined;
-var expectSepiaJsonEle = undefined;
+var expectSepiaJsonEleOrObj = undefined;
 
 //TODO: resolve
 var customSystemPrompt = undefined;
@@ -22,7 +22,7 @@ export function setup(optionsMenu, injectedFun){
 		systemPromptEle = optionsMenu.querySelector("[name=option-system-prompt]");
 		streamResultEle = optionsMenu.querySelector("[name=option-stream-result]");
 		cachePromptsOnServerEle = optionsMenu.querySelector("[name=option-cache-prompts]");
-		expectSepiaJsonEle = optionsMenu.querySelector("[name=option-expect-sepia-json]");
+		expectSepiaJsonEleOrObj = optionsMenu.querySelector("[name=option-expect-sepia-json]") || {};
 		
 		//set start values
 		chatSlotIdEle.value = -1;
@@ -67,7 +67,7 @@ export function getActiveModel(){
 	return chatTemplateEle.value || chatTemplates[0].name;
 }
 export function findBestModelMatch(modelName){
-	var baseModel = modelName.match(/(tiny|olmo|dolphin|deepseek)/i) || modelName.match(/(gemma|mistral|phi|llama)/i);	//TODO: add more/fix when templates grow
+	var baseModel = modelName.match(/(tiny|olmo|dolphin|deepseek)/i) || modelName.match(/(gemma|mistral|phi|llama|qwen)/i);	//TODO: add more/fix when templates grow
 	baseModel = baseModel? baseModel[0] : "";
 	var fallbackTemplate = "";
 	switch (baseModel) {
@@ -113,10 +113,10 @@ export function getActiveSystemPrompt(){
 }
 //special formats
 export function getSepiaJsonFormat(){
-	return expectSepiaJsonEle.checked;
+	return expectSepiaJsonEleOrObj.checked;
 }
 export function setSepiaJsonFormat(trueFalse){
-	expectSepiaJsonEle.checked = trueFalse;
+	expectSepiaJsonEleOrObj.checked = trueFalse;
 }
 
 //server slots
@@ -166,18 +166,19 @@ export function getStreamResultsEnabled(){
 
 //available chat templates
 const chatTemplates = [{
-	name: "LLaMA_3.1_8B_Instruct",
+	name: "LLaMA_3.1_Instruct",
 	llmInfo: {
 		infoPrompt: "Your LLM is called LLaMA 3.1 with 8B parameters and works offline, on device, is open and may be used commercially under certain conditions. LLaMA has been trained by the company Meta, but your training data is somewhat of a mystery."
 	},
 	system: "<|start_header_id|>system<|end_header_id|>{{INSTRUCTION}}<|eot_id|>",
 	user: "<|start_header_id|>user<|end_header_id|>{{CONTENT}}<|eot_id|>",
 	assistant: "<|start_header_id|>assistant<|end_header_id|>{{CONTENT}}<|eot_id|>",
+	tool: "<|start_header_id|>ipython<|end_header_id|>{{CONTENT}}<|eot_id|>",
 	bosToken: "<|begin_of_text|>",
 	endOfPromptToken: "<|start_header_id|>assistant<|end_header_id|>",
 	stopSignals: ["<|eot_id|>"]
 },{
-	name: "Mistral-7B-Instruct",
+	name: "Mistral-Instruct",
 	llmInfo: {
 		infoPrompt: "Your LLM is called Mistral-7B and works offline, on device, is open and may be used commercially under certain conditions. Mistral-7B has been trained by the company Mistral AI, but your training data is somewhat of a mystery."
 	},
@@ -194,11 +195,11 @@ const chatTemplates = [{
 	llmInfo: {
 		infoPrompt: "Your LLM is called Gemma 2 and works offline, on device, is open and may be used commercially under certain conditions. Gemma 2 has been trained by Google, but your training data is somewhat of a mystery."
 	},
-	system: "<start_of_turn>user\n\n{{INSTRUCTION}}\n\n <end_of_turn>",
-	user: "<start_of_turn>user\n\n{{CONTENT}}<end_of_turn>",
-	assistant: "<start_of_turn>model\n\n{{CONTENT}}<end_of_turn>",
+	system: "<start_of_turn>user\n{{INSTRUCTION}}\n<end_of_turn>",
+	user: "<start_of_turn>user\n{{CONTENT}}<end_of_turn>",
+	assistant: "<start_of_turn>model\n{{CONTENT}}<end_of_turn>",
 	bosToken: "<bos>",
-	endOfPromptToken: "<start_of_turn>model\n\n",
+	endOfPromptToken: "<start_of_turn>model\n",
 	stopSignals: ["<end_of_turn>"]
 },{
 	name: "Phi-3-instruct",
@@ -224,7 +225,7 @@ const chatTemplates = [{
 	endOfPromptToken: "<｜Assistant｜>",
 	stopSignals: ["<｜end▁of▁sentence｜>"]
 },{
-	name: "OLMo_7B_Instruct",
+	name: "OLMo_Instruct",
 	llmInfo: {
 		infoPrompt: "Your LLM is called OLMo, has 7B parameters, works offline, on device, is open and may be used commercially under certain conditions. OLMo is trained in a very transparent way by the Allen Institute for AI with open data."
 	},
@@ -235,7 +236,16 @@ const chatTemplates = [{
 	endOfPromptToken: "<|assistant|>\n\n",
 	stopSignals: ["</s>", "<|endoftext|>"]
 },{
-	name: "TinyLlama_1.1B_Chat",
+	name: "Qwen_2.5_Instruct",
+	llmInfo: {},
+	system: "<|im_start|>system\n{{INSTRUCTION}}<|im_end|>",
+	user: "<|im_start|>user\n{{CONTENT}}<|im_end|>",
+	assistant: "<|im_start|>assistant\n{{CONTENT}}<|im_end|>",
+	bosToken: "",
+	endOfPromptToken: "<|im_start|>assistant\n",
+	stopSignals: ["<|im_end|>"]
+},{
+	name: "TinyLlama_Chat",
 	llmInfo: {
 		infoPrompt: "Your LLM is called TinyLlama, has 1.1B parameters, works offline, on device, is open and may be used commercially under certain conditions. More information about TinyLlama can be found on its GitHub project page."
 	},
@@ -254,6 +264,15 @@ const chatTemplates = [{
 	bosToken: "",
 	endOfPromptToken: "<|im_start|>assistant\n",
 	stopSignals: ["<|im_end|>"]
+},{
+	name: "Generic_2",
+	llmInfo: {},
+	system: "<|system|>\n{{INSTRUCTION}}",
+	user: "<|user|>\n{{CONTENT}}",
+	assistant: "<|assistant|>\n{{CONTENT}}",
+	bosToken: "",
+	endOfPromptToken: "<|assistant|>\n",
+	stopSignals: ["<|endoftext|>"]
 }];
 var chatTemplateStopSignalsAll = ["</s>", "<|end|>", "<|eot_id|>", "<|end_of_text|>", "<|im_end|>", "<|EOT|>", "<|END_OF_TURN_TOKEN|>", "<|end_of_turn|>", "<|endoftext|>", "assistant", "user"];
 var knownBosTokens = ["<|begin_of_text|>", "<s>", "<bos>"];
