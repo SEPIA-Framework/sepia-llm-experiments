@@ -7,11 +7,13 @@ var chatTemplateEle = undefined;
 var systemPromptEle = undefined;
 var streamResultEle = undefined;
 var cachePromptsOnServerEle = undefined;
+var toolFunctionsSupportEleOrObj = undefined;
 var expectSepiaJsonEleOrObj = undefined;
 
 //TODO: resolve
 var customSystemPrompt = undefined;
 var activeSystemPrompt = undefined;
+var systemPromptTools = {};
 var llmServerSlots = 0;
 
 export function setup(optionsMenu, injectedFun){
@@ -22,6 +24,7 @@ export function setup(optionsMenu, injectedFun){
 		systemPromptEle = optionsMenu.querySelector("[name=option-system-prompt]");
 		streamResultEle = optionsMenu.querySelector("[name=option-stream-result]");
 		cachePromptsOnServerEle = optionsMenu.querySelector("[name=option-cache-prompts]");
+		toolFunctionsSupportEleOrObj = optionsMenu.querySelector("[name=option-tool-functions]") || {};
 		expectSepiaJsonEleOrObj = optionsMenu.querySelector("[name=option-expect-sepia-json]") || {};
 		
 		//set start values
@@ -110,6 +113,24 @@ export function setCustomSystemPrompt(newPrompt){
 }
 export function getActiveSystemPrompt(){
 	return activeSystemPrompt;
+}
+export function setSystemPromptTool(toolDefinition){
+	systemPromptTools[toolDefinition.function.name] = toolDefinition;
+}
+export function removeSystemPromptTool(toolDefinition){
+	delete systemPromptTools[toolDefinition.function.name];
+}
+export function hasSystemPromptTool(toolDefinition){
+	return !!systemPromptTools[toolDefinition.function.name];
+}
+export function getSystemPromptToolsArray(){
+	return Object.values(systemPromptTools);
+}
+export function getToolFunctionsSupport(){
+	return toolFunctionsSupportEleOrObj.checked;
+}
+export function setToolFunctionsSupport(trueFalse){
+	toolFunctionsSupportEleOrObj.checked = trueFalse;
 }
 //special formats
 export function getSepiaJsonFormat(){

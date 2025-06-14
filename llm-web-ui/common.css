@@ -806,7 +806,6 @@ html.dark .pop-up-message-box {
 	resize: vertical;
 	overflow-y: auto;
     overflow-x: hidden;
-    max-width: 100%;
 	scrollbar-width: thin;
 	border: 1px solid;
 }

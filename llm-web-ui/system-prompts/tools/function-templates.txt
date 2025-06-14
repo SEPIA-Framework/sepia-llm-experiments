@@ -1,0 +1,38 @@
+[{
+    "type": "function",
+    "function": {
+        "name": "get_time",
+        "description": "Get the current time of day for a specific time zone",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "timeZone": {
+                    "type": "string",
+                    "description": "The time zone, e.g. America/New_York or Europe/Berlin"
+                }
+            },
+            "required": ["timeZone"]
+        }
+    }
+},{
+    "type": "function",
+    "function": {
+        "name": "get_current_weather_conditions",
+        "description": "Get the current weather conditions for a specific location",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "location": {
+                    "type": "string",
+                    "description": "The city and optionally country and state, e.g. San Francisco, CA, USA or Berlin, Germany"
+                },
+                "unit": {
+                    "type": "string",
+                    "enum": ["Celsius", "Fahrenheit"],
+                    "description": "The temperature unit to use. Infer this from the user's location."
+                }
+            },
+            "required": ["location", "unit"]
+        }
+    }
+}]
