@@ -217,9 +217,13 @@ export async function getFreeServerSlot(numberOfSlots){
 		//use data to find free slot
 		var bosToken = llm.settings.getChatTemplate()?.bosToken || "";
 		var knownBosTokens = llm.settings.getKnownBosTokens();
+		var allStopSignals = llm.settings.getAllChatStopSignals();
 		for (const slot of serverSlots){
-			let recentlyUsed = (slot.prompt && slot.prompt != bosToken && !knownBosTokens.includes(slot.prompt));
-			let isProcessing = (slot.state == 1);
+			let recentlyUsed = slot.prompt && slot.prompt.trim();
+			if (recentlyUsed){
+				recentlyUsed = (slot.prompt != bosToken && !knownBosTokens.includes(slot.prompt) && !allStopSignals.includes(slot.prompt));
+			}
+			let isProcessing = (slot.is_processing || slot.state == 1);		//NOTE: slot.state is deprecated
 			if (!isProcessing && !recentlyUsed){
 				freeSlotId = slot.id;
 				break;
