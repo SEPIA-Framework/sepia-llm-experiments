@@ -148,8 +148,9 @@ function showPopUp(content, buttons, options, onCloseCallback){
 			var btnEle = document.createElement("button");
 			btnEle.textContent = btn.name || ("Button " + i);	
 			btnEle.addEventListener("click", function(){
-				if (typeof btn.fun == "function") btn.fun();
-				if (btn.closeAfterClick) popUpOverlay.popUpClose(btn.skipCloseCallback);
+				var res;	//NOTE: 'false' can suppress close action 
+				if (typeof btn.fun == "function") res = btn.fun();
+				if (btn.closeAfterClick && res !== false) popUpOverlay.popUpClose(btn.skipCloseCallback);
 			});
 			btnBox.appendChild(btnEle);
 		});
