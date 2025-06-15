@@ -11,8 +11,9 @@ var toolFunctionsSupportEleOrObj = undefined;
 var expectSepiaJsonEleOrObj = undefined;
 
 //TODO: resolve
-var customSystemPrompt = undefined;
-var activeSystemPrompt = undefined;
+var customSystemPromptInstructions = undefined;
+var systemPromptToolsTemplate = undefined;
+var activeSystemPrompt = undefined;		//actual (full) system prompt in use
 var systemPromptTools = {};
 var llmServerSlots = 0;
 
@@ -105,11 +106,17 @@ export function getSystemPromptInfo(name){
 export function setSystemPromptInfo(name){
 	systemPromptEle.value = name;
 }
-export function getCustomSystemPrompt(){
-	return customSystemPrompt;
+export function getCustomSystemPromptInstructions(){
+	return customSystemPromptInstructions;
 }
-export function setCustomSystemPrompt(newPrompt){
-	customSystemPrompt = newPrompt;
+export function setCustomSystemPromptInstructions(newPrompt){
+	customSystemPromptInstructions = newPrompt;
+}
+export function getSystemPromptToolsTemplate(){
+	return systemPromptToolsTemplate;
+}
+export function setSystemPromptToolsTemplate(newPrompt){
+	systemPromptToolsTemplate = newPrompt;
 }
 export function getActiveSystemPrompt(){
 	return activeSystemPrompt;
@@ -130,7 +137,7 @@ export function getToolFunctionsSupport(){
 	return toolFunctionsSupportEleOrObj.checked;
 }
 export function setToolFunctionsSupport(trueFalse){
-	toolFunctionsSupportEleOrObj.checked = trueFalse;
+	toolFunctionsSupportEleOrObj.checked = trueFalse;	//NOTE: models can choose to ignore this
 }
 //special formats
 export function getSepiaJsonFormat(){
@@ -341,7 +348,7 @@ export function loadSystemPrompt(sysPromptName, chatTempName){
 				message: "Failed to load system prompt. Configuration with name '" + sysPromptName + "' is not defined."
 			});
 		}else if (sysPromptInfo.value == "custom"){
-			if (!customSystemPrompt){
+			if (!customSystemPromptInstructions){
 				systemPromptEle.value = systemPromptEle.options[1].value;	//TODO: reset properly
 				reject({
 					name: "FailedToLoadSystemPrompt",
@@ -349,7 +356,7 @@ export function loadSystemPrompt(sysPromptName, chatTempName){
 				});
 			}else{
 				systemPromptEle.value = "custom";
-				activeSystemPrompt = customSystemPrompt;
+				activeSystemPrompt = customSystemPromptInstructions;
 				setSepiaJsonFormat(false);
 				resolve(activeSystemPrompt);
 			}

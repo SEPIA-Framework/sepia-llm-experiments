@@ -21,12 +21,7 @@ export function setup(chatUiHandl){
 }
 
 export function showSystemPromptEditor(disableEdit, onCloseCallback){
-	var content = buildSystemPromptEditComponent("55vh", disableEdit);
-	var sysPromptInfo = llm.settings.getSystemPromptInfo();
-	var customSystemPrompt = llm.settings.getCustomSystemPrompt();
-	if ((!sysPromptInfo || sysPromptInfo.value == "custom") && customSystemPrompt){
-		content.setSystemPrompt(customSystemPrompt);
-	}
+	var sysPromptEdit = buildSystemPromptEditComponent("55vh", disableEdit);
 	var buttons;
 	if (disableEdit){
 		buttons = [{
@@ -38,7 +33,9 @@ export function showSystemPromptEditor(disableEdit, onCloseCallback){
 			name: "Save",
 			fun: function(){
 				llm.settings.setSystemPromptInfo("custom");
-				llm.settings.setCustomSystemPrompt(content.getSystemPrompt());
+				llm.settings.setCustomSystemPromptInstructions(sysPromptEdit.getSystemPromptInstructions());
+				llm.settings.setSystemPromptToolsTemplate(sysPromptEdit.getSystemPromptToolsTemplate());
+				//NOTE: tool functions are already saved (updated immediately)
 				llm.settings.loadSystemPrompt().catch((err) => {
 					console.error("Failed to load system prompt.", err);
 					showPopUp("ERROR: " + (err?.message || "Failed to load system prompt."));
@@ -77,7 +74,7 @@ export function showSystemPromptEditor(disableEdit, onCloseCallback){
 			name: "Close",
 			closeAfterClick: true
 		});
-		addDragAndDropFileImport(content, function(txt){	//TODO: handle 'disableEdit' here?
+		addDragAndDropFileImport(sysPromptEdit, function(txt){	//TODO: handle 'disableEdit' here?
 			importText(txt);
 		}, function(err){
 			console.error("Failed to load file:", err);		//DEBUG
@@ -101,7 +98,7 @@ export function showSystemPromptEditor(disableEdit, onCloseCallback){
 			}
 		}
 	}
-	var pop = showPopUp(content, buttons, {
+	var pop = showPopUp(sysPromptEdit, buttons, {
 		width: "1024px"
 	}, onCloseCallback);
 }
@@ -114,24 +111,67 @@ function buildSystemPromptEditComponent(txtareaHeight, disableEdit){
 	}else{
 		info.textContent = "Here you can add/edit your system prompt:";
 	}
-	//prompt text
-	var textC = document.createElement("div");
-	textC.className = "text-container";
-	var txt = document.createElement("textarea");
-	if (txtareaHeight){
-		txt.style.height = (typeof txtareaHeight == "number")? (txtareaHeight + "px") : txtareaHeight;
-	}
+	content.appendChild(info);
+	//prompt section with tabs
+	var promptsContainerTabs = document.createElement("div");
+	promptsContainerTabs.className = "container-tabs";
+	var promptsContainer = document.createElement("div");
+	promptsContainer.style.display = "contents";
+	var promptSections = [
+		{name: "Instructions prompt", tabName: "Instructions"},
+		{name: "Tools prompt template", tabName: "Tools template"},
+		{name: "Full system prompt", tabName: "Result"}
+	];
+	var promptSectionTxt = new Array(3);
 	var sysPromptInfo = llm.settings.getSystemPromptInfo();
 	if (!sysPromptInfo || sysPromptInfo.value == "custom"){
-		txt.placeholder = ("Enter your prompt here.");
+		promptSections[0].placeholder = ("Enter your instructions prompt here.");
 	}else{
-		txt.placeholder = ("Currently selected preset:\n" + sysPromptInfo.name);
+		promptSections[0].placeholder = ("Currently selected preset:\n" + sysPromptInfo.name);
 	}
-	if (disableEdit){
-		txt.disabled = true;
-		txt.title = "To edit your system prompt, please close the current chat first.";
-	}
-	textC.appendChild(txt);
+	//build each section
+	promptSections.forEach((sec, i) => {
+		//instruction prompt text
+		var textC = document.createElement("div");
+		textC.className = "text-container";
+		var txt = document.createElement("textarea");
+		promptSectionTxt[i] = txt;
+		if (txtareaHeight){
+			txt.style.height = (typeof txtareaHeight == "number")? (txtareaHeight + "px") : txtareaHeight;
+		}
+		txt.placeholder = sec.placeholder || sec.name;
+		if (i == 2){
+			//result is read only
+			txt.readOnly = true;
+		}else if (disableEdit){
+			txt.disabled = true;
+			txt.title = "To edit this prompt, please close the current chat first.";
+		}
+		textC.appendChild(txt);
+		promptsContainer.appendChild(textC);
+		//add tab
+		var secTab = document.createElement("button");
+		secTab.textContent = sec.tabName;
+		promptsContainerTabs.appendChild(secTab);
+		secTab.addEventListener("click", function(){
+			promptsContainer.querySelectorAll(".text-container").forEach(tc => tc.style.display = "none");
+			promptsContainerTabs.querySelectorAll("button").forEach(tb => tb.classList.remove("active"));
+			textC.style.removeProperty("display");
+			secTab.classList.add("active");
+			if (i == 2){
+				//build result
+				//TODO: build properly (see 'loadSystemPrompt' function)
+				txt.value = promptSectionTxt[0].value.trim() + "\n\n" + promptSectionTxt[1].value.trim();
+			}
+		});
+		if (i > 0){
+			textC.style.display = "none";
+		}else{
+			secTab.classList.add("active");
+		}
+	});
+	content.appendChild(promptsContainerTabs);
+	content.appendChild(promptsContainer);
 	//tools manage section
 	var infoTools = document.createElement("p");
 	infoTools.textContent = "Add tools (will be used if enabled and supported):";
@@ -154,20 +194,33 @@ function buildSystemPromptEditComponent(txtareaHeight, disableEdit){
 		});
 		toolsSec.appendChild(addToolButton);
 	}
+	content.appendChild(infoTools);
+	content.appendChild(toolsSec);
+	//add functions
+	content.getSystemPromptInstructions = function(){
+		return promptSectionTxt[0].value;
+	};
+	content.setSystemPromptInstructions = function(newVal){
+		promptSectionTxt[0].value = newVal;
+	};
+	content.getSystemPromptToolsTemplate = function(){
+		return promptSectionTxt[1].value;
+	};
+	content.setSystemPromptToolsTemplate = function(newVal){
+		promptSectionTxt[1].value = newVal;
+	};
+	//init values
+	var sysPromptInstructions = llm.settings.getCustomSystemPromptInstructions();
+	if ((!sysPromptInfo || sysPromptInfo.value == "custom") && sysPromptInstructions){
+		content.setSystemPromptInstructions(sysPromptInstructions);
+	}
+	var sysPromptToolsTemplate = llm.settings.getSystemPromptToolsTemplate();
+	if (sysPromptToolsTemplate){
+		content.setSystemPromptToolsTemplate(sysPromptToolsTemplate);
+	}
 	llm.settings.getSystemPromptToolsArray()?.forEach(td => {
 		addPromptToolButton(td, toolsSec, disableEdit);
 	});
-	//add functions
-	content.appendChild(info);
-	content.appendChild(textC);
-	content.appendChild(infoTools);
-	content.appendChild(toolsSec);
-	content.getSystemPrompt = function(){
-		return txt.value;
-	};
-	content.setSystemPrompt = function(newVal){
-		txt.value = newVal;
-	};
 	return content;
 }
 function buildPromptToolEditor(toolDef, disableEdit, onAddUpdateCallback, onRemoveCallback, onCloseCallback){
@@ -462,13 +515,23 @@ function exportSystemPromptAndHistory(){
 	var sysPromptInfo = llm.settings.getSystemPromptInfo();
 	return {
 		systemPromptSelected: sysPromptInfo.value,
-		systemPrompt: ((sysPromptInfo.value == "custom")? llm.settings.getCustomSystemPrompt() : ""),
+		systemPromptInstructions: ((sysPromptInfo.value == "custom")? llm.settings.getCustomSystemPromptInstructions() : ""),
+		systemPromptToolsTemplate: llm.settings.getSystemPromptToolsTemplate(),
+		systemPromptToolsArray: llm.settings.getSystemPromptToolsArray(),
+		enableToolFunctions: llm.settings.getToolFunctionsSupport(),
 		history: chat.history.getActiveHistory()
 	}
 }
 function restoreSystemPromptAndHistory(data){
 	llm.settings.setSystemPromptInfo(data.systemPromptSelected);
-	llm.settings.setCustomSystemPrompt(data.systemPrompt);
+	llm.settings.setCustomSystemPromptInstructions(data.systemPromptInstructions || data.systemPrompt || "");
+	llm.settings.setSystemPromptToolsTemplate(data.systemPromptToolsTemplate || "");
+	if (data.systemPromptToolsArray && data.systemPromptToolsArray.length){
+		data.systemPromptToolsArray.forEach(td => {
+			llm.settings.setSystemPromptTool(td);
+		});
+	}
+	llm.settings.setToolFunctionsSupport(!!data.enableToolFunctions);
 	if (chatUiHandlers.isChatClosed()){
 		chat.history.cacheHistoryForRestore(data.history);
 	}else{

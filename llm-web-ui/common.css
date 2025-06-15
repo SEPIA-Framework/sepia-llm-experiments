@@ -1227,3 +1227,27 @@ html.dark .chat-msg-container.user-prompt .chat-msg .chat-msg-header .chat-msg-h
     color: currentColor;
 	margin: 0 !important;
 }
+
+.container-tabs {
+	display: flex;
+    align-items: end;
+	justify-content: end;
+    gap: 0px;
+	margin-bottom: -1px;
+    z-index: 2;
+}
+.container-tabs button {
+	background: transparent;
+	color: currentColor;
+	border-radius: 3px 3px 0 0;
+    box-shadow: unset;
+	min-height: 20px;
+	margin-top: 3px !important;
+}
+.container-tabs button.active {
+	min-height: 23px;
+	font-weight: bold;
+	/*text-decoration: underline;*/
+	border-bottom-color: #fff;
+	margin-top: 0px !important;
+}
