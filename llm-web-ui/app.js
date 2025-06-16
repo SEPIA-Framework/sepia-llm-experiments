@@ -312,26 +312,33 @@ function initNewChat(welcomeMsg, cacheSysPrompt){
 		welcomeMsg = ui.chatMessage.createAnswer();
 		welcomeMsg.attach();
 	}
-	if (cacheSysPrompt){
-		llm.interface.chatCompletionSystemPromptOnly(activeSlotId, activeTemplate).then((response) => {
-			return response.json();
-		}).then((resJson) => {
-			//TODO: eval
-			//console.error("sys prompt response:", resJson);		//DEBUG
+	//make sure system prompt is up to date
+	llm.settings.loadSystemPrompt().then((sp) => {
+		if (cacheSysPrompt){
+			llm.interface.chatCompletionSystemPromptOnly(activeSlotId, activeTemplate).then((response) => {
+				return response.json();
+			}).then((resJson) => {
+				//TODO: eval
+				//console.error("sys prompt response:", resJson);		//DEBUG
+				welcomeMsg.hideLoader();
+				welcomeMsg.setText(welcomeMessageText);
+				onNewChatReady();
+			}).catch((err) => {
+				//TODO: handle
+				console.error("Failed to upload system prompt:", err);		//DEBUG
+				welcomeMsg.hideLoader();
+				onNewChatReady();
+			});
+		}else{
 			welcomeMsg.hideLoader();
 			welcomeMsg.setText(welcomeMessageText);
 			onNewChatReady();
-		}).catch((err) => {
-			//TODO: handle
-			console.error("Failed to upload system prompt:", err);		//DEBUG
-			welcomeMsg.hideLoader();
-			onNewChatReady();
-		});
-	}else{
+		}
+	}).catch(err => {
+		welcomeMsg.setText("- FAILED TO LOAD SYSTEM PROMPT -");
+		welcomeMsg.setFooterText("ERROR");
 		welcomeMsg.hideLoader();
-		welcomeMsg.setText(welcomeMessageText);
-		onNewChatReady();
-	}
+	});
 }
 function onNewChatReady(){
 	//restore history
