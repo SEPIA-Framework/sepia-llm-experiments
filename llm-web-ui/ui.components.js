@@ -32,8 +32,12 @@ export function showSystemPromptEditor(disableEdit, onCloseCallback){
 		buttons = [{
 			name: "Save",
 			fun: function(){
-				llm.settings.setSystemPromptInfo("custom");
-				llm.settings.setCustomSystemPromptInstructions(sysPromptEdit.getSystemPromptInstructions());
+				let customInstructionsPrompt = sysPromptEdit.getSystemPromptInstructions();
+				if (customInstructionsPrompt){
+					//we need a non-empty prompt for 'custom'
+					llm.settings.setSystemPromptInfo("custom");
+					llm.settings.setCustomSystemPromptInstructions(customInstructionsPrompt);
+				}
 				llm.settings.setSystemPromptToolsTemplate(sysPromptEdit.getSystemPromptToolsTemplate());
 				//NOTE: tool functions are already saved (updated immediately)
 				llm.settings.loadSystemPrompt().catch((err) => {
@@ -160,8 +164,13 @@ function buildSystemPromptEditComponent(txtareaHeight, disableEdit){
 			secTab.classList.add("active");
 			if (i == 2){
 				//build result
-				//TODO: build properly (see 'loadSystemPrompt' function)
-				txt.value = promptSectionTxt[0].value.trim() + "\n\n" + promptSectionTxt[1].value.trim();
+				//TODO: this will not apply any changes that are not saved yet!
+				llm.settings.loadSystemPrompt(undefined, undefined, true)
+				.then((sysPro) => {
+					txt.value = sysPro;
+				}).catch((err) => {
+					txt.value = "ERROR: Failed to load system prompt.";
+				});
 			}
 		});
 		if (i > 0){
@@ -239,6 +248,7 @@ function buildPromptToolEditor(toolDef, disableEdit, onAddUpdateCallback, onRemo
 		templateSelectorBox.style.cssText = "margin-bottom: 8px;";
 		templateSelectorBox.innerHTML = "<label>Available templates:</label>";
 		var templateSelector = document.createElement("select");
+		templateSelector.innerHTML = "<option>- LOADING -</option>";
 		templateSelector.addEventListener("change", function(){
 			var json = JSON.parse(this.value);
 			txt.value = JSON.stringify(json, null, 2);

@@ -12,7 +12,7 @@ var expectSepiaJsonEleOrObj = undefined;
 
 //TODO: resolve
 var customSystemPromptInstructions = undefined;
-var systemPromptToolsTemplate = undefined;
+var systemPromptToolsTemplate = "{{AVAILABLE_TOOLS}}";
 var activeSystemPrompt = undefined;		//actual (full) system prompt in use
 var systemPromptTools = {};
 var llmServerSlots = 0;
@@ -226,6 +226,7 @@ const chatTemplates = [{
 	system: "<start_of_turn>user\n{{INSTRUCTION}}\n<end_of_turn>",
 	user: "<start_of_turn>user\n{{CONTENT}}<end_of_turn>",
 	assistant: "<start_of_turn>model\n{{CONTENT}}<end_of_turn>",
+	tool: "<start_of_turn>function-response\n{{CONTENT}}<end_of_turn>",
 	bosToken: "<bos>",
 	endOfPromptToken: "<start_of_turn>model\n",
 	stopSignals: ["<end_of_turn>"]
@@ -317,7 +318,7 @@ const systemPrompts = [{
 	name: "SEPIA Chat",
 	value: "sepia_chat_basic",
 	promptText: "You are a voice assistant, your name is SEPIA. You have been created to answer general knowledge questions and have a nice and friendly conversation. " 
-			+ "Your answers are short and precise, but can be funny sometimes. You can't access real-time data and you don't make stuff up. " 
+			+ "Your answers are short and precise, but can be funny sometimes. You can't access real-time data and you don't make stuff up.\n" 
 			+ "If you write code start the code-block with '```' and the name of the programming language like '```javascript' or '```json'.",
 	welcomeMessage: "SEPIA is an assistant that can have a friendly conversation, answer common knowledge questions and do a bit of coding.",
 	expectSepiaJson: false
@@ -338,7 +339,7 @@ const systemPrompts = [{
 }];
 
 //prompt loader
-export function loadSystemPrompt(sysPromptName, chatTempName){
+export function loadSystemPrompt(sysPromptName, chatTempName, returnOnly){
 	return new Promise((resolve, reject) => {
 		var selectedTemplate = getChatTemplate(chatTempName);
 		var sysPromptInfo = getSystemPromptInfo(sysPromptName);
@@ -349,32 +350,43 @@ export function loadSystemPrompt(sysPromptName, chatTempName){
 			});
 		}else if (sysPromptInfo.value == "custom"){
 			if (!customSystemPromptInstructions){
-				systemPromptEle.value = systemPromptEle.options[1].value;	//TODO: reset properly
+				if (!returnOnly){
+					systemPromptEle.value = systemPromptEle.options[1].value;	//TODO: reset properly
+				}
 				reject({
 					name: "FailedToLoadSystemPrompt",
 					message: "Failed to load custom system prompt. Please define via settings."
 				});
 			}else{
-				systemPromptEle.value = "custom";
-				activeSystemPrompt = customSystemPromptInstructions;
-				setSepiaJsonFormat(false);
-				resolve(activeSystemPrompt);
+				let fullSysPrompt = buildActiveSystemPrompt(selectedTemplate, sysPromptInfo, customSystemPromptInstructions);
+				if (!returnOnly){
+					activeSystemPrompt = fullSysPrompt;
+					systemPromptEle.value = "custom";
+					setSepiaJsonFormat(false);
+				}
+				resolve(fullSysPrompt);
 			}
 		}else if (sysPromptInfo.file){
 			var loadMsg = showPopUp("Loading system prompt file...");
 			loadFile("system-prompts/" + sysPromptInfo.file, "text").then((sp) => {
 				//apply text from file
-				activeSystemPrompt = applySystemPromptVariables(sp, sysPromptInfo.promptVariables, selectedTemplate);
-				setSepiaJsonFormat(sysPromptInfo.expectSepiaJson);
+				let fullSysPrompt = buildActiveSystemPrompt(selectedTemplate, sysPromptInfo, 
+					applySystemPromptVariables(sp, sysPromptInfo.promptVariables, selectedTemplate));
+				if (!returnOnly){
+					activeSystemPrompt = fullSysPrompt;
+					setSepiaJsonFormat(sysPromptInfo.expectSepiaJson);
+				}
 				loadMsg.popUpClose();
-				resolve(activeSystemPrompt);
+				resolve(fullSysPrompt);
 			}).catch((err) => {
 				//failed to load file
-				activeSystemPrompt = "";
-				setSepiaJsonFormat(false);
 				console.error("Failed to load system prompt file:", sysPromptInfo.file, err);
+				if (!returnOnly){
+					activeSystemPrompt = "";
+					setSepiaJsonFormat(false);
+					systemPromptEle.value = systemPromptEle.options[1].value;	//TODO: reset properly
+				}
 				loadMsg.popUpClose();
-				systemPromptEle.value = systemPromptEle.options[1].value;	//TODO: reset properly
 				reject({
 					name: "FailedToLoadPromptFile",
 					message: "Failed to load system prompt file.",
@@ -383,15 +395,41 @@ export function loadSystemPrompt(sysPromptName, chatTempName){
 			});
 		}else if (sysPromptInfo.promptText){
 			//apply text directly
-			activeSystemPrompt = applySystemPromptVariables(sysPromptInfo.promptText, sysPromptInfo.promptVariables, selectedTemplate);
-			setSepiaJsonFormat(sysPromptInfo.expectSepiaJson);
-			resolve(activeSystemPrompt);
+			let fullSysPrompt = buildActiveSystemPrompt(selectedTemplate, sysPromptInfo, 
+				applySystemPromptVariables(sysPromptInfo.promptText, sysPromptInfo.promptVariables, selectedTemplate));
+			if (!returnOnly){
+				activeSystemPrompt = fullSysPrompt;
+				setSepiaJsonFormat(sysPromptInfo.expectSepiaJson);
+			}
+			resolve(fullSysPrompt);
 		}else{
-			activeSystemPrompt = "";
-			setSepiaJsonFormat(false);
+			let fullSysPrompt = "";
+			if (!returnOnly){
+				activeSystemPrompt = fullSysPrompt;
+				setSepiaJsonFormat(false);
+			}
 			resolve(activeSystemPrompt);
 		}
 	});
+}
+function buildActiveSystemPrompt(selectedTemplate, sysPromptInfo, instructions){
+	//TODO: use sysPromptInfo?
+	//TODO: move 'applySystemPromptVariables' here?
+	var useTools = getToolFunctionsSupport();
+	var toolsTemplate = systemPromptToolsTemplate;
+	if (!useTools){
+		return instructions;
+	}else{
+		var toolsArrayString = "";
+		getSystemPromptToolsArray().forEach(toolDef => {
+			toolsArrayString += "Use the function '" + toolDef.function.name 
+				+ "' to: " + toolDef.function.description + ".\n";
+			toolsArrayString += JSON.stringify(toolDef, null, 4);
+		});
+		toolsTemplate = toolsTemplate.replace("{{AVAILABLE_TOOLS}}", toolsArrayString.trim());
+		var fullPrompt = instructions.trim() + "\n\n" + toolsTemplate.trim();
+		return fullPrompt;
+	}
 }
 function applySystemPromptVariables(sysPrompt, promptVariables, selectedTemplate){
 	//apply system prompt variables
